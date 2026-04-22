@@ -272,6 +272,14 @@ function Inventario() {
     return producto.stock <= producto.minimo ? "critico" : "normal"
   }
 
+  const formatearMoneda = (valor: number) => {
+    return new Intl.NumberFormat("es-CO", {
+      style: "currency",
+      currency: "COP",
+      maximumFractionDigits: 0,
+    }).format(valor || 0)
+  }
+
   const productosFiltrados = useMemo(() => {
     let lista = [...productos]
 
@@ -366,15 +374,16 @@ function Inventario() {
 
         <div className="bg-white rounded-[24px] border border-[#ece7fb] overflow-hidden">
           <div
-            className={`grid px-8 py-5 text-[12px] font-semibold tracking-wide text-[#9ea3bf] uppercase ${
+            className={`grid px-7 py-5 text-[12px] font-semibold tracking-wide text-[#9ea3bf] uppercase ${
               puedeGestionarProductos
-                ? "grid-cols-[0.8fr_2fr_1fr_1.15fr_0.8fr_0.9fr_0.9fr]"
-                : "grid-cols-[0.8fr_2fr_1fr_1.15fr_0.8fr_0.9fr]"
+                ? "grid-cols-[0.8fr_2fr_1fr_1.1fr_1.15fr_0.8fr_0.9fr_0.9fr]"
+                : "grid-cols-[0.8fr_2fr_1fr_1.1fr_1.15fr_0.8fr_0.9fr]"
             }`}
           >
             <div>SKU</div>
             <div>Producto</div>
             <div>Categoría</div>
+            <div className="text-center">Valor Unitario</div>
             <div>Stock Actual</div>
             <div className="text-center">Stock Máx.</div>
             <div>Estado</div>
@@ -396,21 +405,21 @@ function Inventario() {
               return (
                 <div
                   key={producto.id || index}
-                  className={`grid items-center px-8 py-4 border-t border-[#f0ebfc] ${
+                  className={`grid items-center px-7 py-4 border-t border-[#f0ebfc] ${
                     puedeGestionarProductos
-                      ? "grid-cols-[0.8fr_2fr_1fr_1.15fr_0.8fr_0.9fr_0.9fr]"
-                      : "grid-cols-[0.8fr_2fr_1fr_1.15fr_0.8fr_0.9fr]"
+                      ? "grid-cols-[0.8fr_2fr_1fr_1.1fr_1.15fr_0.8fr_0.9fr_0.9fr]"
+                      : "grid-cols-[0.8fr_2fr_1fr_1.1fr_1.15fr_0.8fr_0.9fr]"
                   }`}
                 >
                   <div className="text-sm text-[#8f95b2]">{producto.sku}</div>
 
-                  <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-[#f5f2ff] flex items-center justify-center">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-10 h-10 rounded-xl bg-[#f5f2ff] flex items-center justify-center shrink-0">
                       <Package size={16} className="text-[#7f78ff]" />
                     </div>
 
-                    <div>
-                      <div className="font-semibold text-[#20224a]">
+                    <div className="min-w-0">
+                      <div className="font-semibold text-[#20224a] truncate">
                         {producto.nombre}
                       </div>
                       <div className="text-[#9ea3bf] text-sm">
@@ -421,6 +430,10 @@ function Inventario() {
 
                   <div className="text-[#5f6481] text-sm">
                     {producto.categoria}
+                  </div>
+
+                  <div className="text-[#20224a] font-semibold text-sm text-center whitespace-nowrap">
+                    {formatearMoneda(Number(producto.precioUnitario ?? 0))}
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -444,11 +457,11 @@ function Inventario() {
 
                   <div>
                     {estado === "critico" ? (
-                      <span className="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-[#fff0f0] text-[#e35d5d]">
+                      <span className="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-[#fff0f0] text-[#e35d5d] whitespace-nowrap">
                         △ Crítico
                       </span>
                     ) : (
-                      <span className="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-[#eefbf3] text-[#20a464]">
+                      <span className="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-[#eefbf3] text-[#20a464] whitespace-nowrap">
                         ✓ Normal
                       </span>
                     )}
