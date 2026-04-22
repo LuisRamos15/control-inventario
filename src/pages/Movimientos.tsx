@@ -1,0 +1,634 @@
+import { useEffect, useMemo, useState } from "react"
+import axios from "axios"
+import {
+  Bell,
+  Search,
+  Plus,
+  X,
+  ArrowDownLeft,
+  ArrowUpRight,
+  Check,
+} from "lucide-react"
+import { useNavigate } from "react-router-dom"
+
+function Movimientos() {
+  const [movimientos, setMovimientos] = useState<any[]>([])
+  const [productos, setProductos] = useState<any[]>([])
+  const [cargando, setCargando] = useState(true)
+  const [cargandoMas, setCargandoMas] = useState(false)
+  const [modal, setModal] = useState(false)
+  const [modalExito, setModalExito] = useState(false)
+  const [mensaje, setMensaje] = useState("")
+  const [filtro, setFiltro] = useState("todos")
+  const [page, setPage] = useState(0)
+  const [hayMas, setHayMas] = useState(true)
+
+  const token = localStorage.getItem("token") || ""
+  const API_MOVIMIENTOS = "http://localhost:8080/api/movimientos"
+  const API_PRODUCTOS = "http://localhost:8080/api/productos"
+  const navigate = useNavigate()
+
+  const decodeJwt = (jwt: string) => {
+    try {
+      const base64 = jwt.split(".")[1]
+      const normalized = base64.replace(/-/g, "+").replace(/_/g, "/")
+      const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=")
+      const decoded = atob(padded)
+      return JSON.parse(decoded)
+    } catch {
+      return null
+    }
+  }
+
+  const payload = decodeJwt(token)
+
+  const roles: string[] = useMemo(() => {
+    if (!payload) return []
+
+    const rawRoles =
+      payload.roles ||
+      payload.authorities ||
+      payload.auth ||
+      payload.scope ||
+      []
+
+    if (Array.isArray(rawRoles)) {
+      return rawRoles.map((r) => String(r).toUpperCase())
+    }
+
+    if (typeof rawRoles === "string") {
+      return rawRoles
+        .split(/[,\s]+/)
+        .filter(Boolean)
+        .map((r) => r.toUpperCase())
+    }
+
+    return []
+  }, [payload])
+
+  const esSuperAdmin = roles.includes("SUPER_ADMIN") || roles.includes("ROLE_SUPER_ADMIN")
+  const esAdmin = roles.includes("ADMIN") || roles.includes("ROLE_ADMIN")
+  const esSupervisor = roles.includes("SUPERVISOR") || roles.includes("ROLE_SUPERVISOR")
+  const esOperador = roles.includes("OPERADOR") || roles.includes("ROLE_OPERADOR")
+
+  const puedeRegistrarMovimiento =
+    roles.length === 0 || esSuperAdmin || esAdmin || esSupervisor || esOperador
+
+  const puedeVerAlertas =
+    esSuperAdmin || esAdmin || esSupervisor
+
+  const [form, setForm] = useState({
+    productoId: "",
+    tipo: esOperador ? "SALIDA" : "ENTRADA",
+    cantidad: "",
+    motivo: "",
+  })
+
+  const getHeaders = () => ({
+    Authorization: `Bearer ${token}`,
+  })
+
+  const cargarProductos = async () => {
+    try {
+      const res = await axios.get(API_PRODUCTOS, {
+        headers: getHeaders(),
+      })
+      setProductos(Array.isArray(res.data) ? res.data : [])
+    } catch (error) {
+      console.log(error)
+    }
+  }
+
+  const cargarMovimientos = async (
+    pageValue: number,
+    reset: boolean,
+    filtroActual: string
+  ) => {
+    try {
+      if (pageValue === 0) {
+        setCargando(true)
+      } else {
+        setCargandoMas(true)
+      }
+
+      const params: any = {
+        page: pageValue,
+        size: 8,
+        sort: "fecha,desc",
+      }
+
+      if (filtroActual === "entradas") {
+        params.tipo = "ENTRADA"
+      }
+
+      if (filtroActual === "salidas") {
+        params.tipo = "SALIDA"
+      }
+
+      const res = await axios.get(API_MOVIMIENTOS, {
+        headers: getHeaders(),
+        params,
+      })
+
+      const content = Array.isArray(res.data?.content) ? res.data.content : []
+      const last = Boolean(res.data?.last)
+
+      if (reset) {
+        setMovimientos(content)
+      } else {
+        setMovimientos((prev) => [...prev, ...content])
+      }
+
+      setHayMas(!last)
+    } catch (error) {
+      console.log(error)
+      if (reset) {
+        setMovimientos([])
+      }
+      setHayMas(false)
+    } finally {
+      setCargando(false)
+      setCargandoMas(false)
+    }
+  }
+
+  useEffect(() => {
+    cargarProductos()
+  }, [])
+
+  useEffect(() => {
+    setPage(0)
+    cargarMovimientos(0, true, filtro)
+  }, [filtro])
+
+  useEffect(() => {
+    if (!mensaje) return
+    const timer = setTimeout(() => setMensaje(""), 2500)
+    return () => clearTimeout(timer)
+  }, [mensaje])
+
+  const cargarMas = async () => {
+    const nextPage = page + 1
+    setPage(nextPage)
+    await cargarMovimientos(nextPage, false, filtro)
+  }
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target
+
+    if (name === "cantidad") {
+      const soloNumeros = value.replace(/[^\d]/g, "")
+      setForm((prev) => ({
+        ...prev,
+        [name]: soloNumeros,
+      }))
+      return
+    }
+
+    if (name === "tipo" && esOperador) {
+      setForm((prev) => ({
+        ...prev,
+        tipo: "SALIDA",
+      }))
+      return
+    }
+
+    setForm((prev) => ({
+      ...prev,
+      [name]: value,
+    }))
+  }
+
+  const limpiarFormulario = () => {
+    setForm({
+      productoId: "",
+      tipo: esOperador ? "SALIDA" : "ENTRADA",
+      cantidad: "",
+      motivo: "",
+    })
+  }
+
+  const cerrarModal = () => {
+    setModal(false)
+    limpiarFormulario()
+  }
+
+  const abrirModal = () => {
+    limpiarFormulario()
+    setModal(true)
+  }
+
+  const registrarMovimiento = async () => {
+    try {
+      const productoSeleccionado = productos.find((p) => p.id === form.productoId)
+
+      const tipoFinal = esOperador ? "SALIDA" : form.tipo
+
+      const payloadMovimiento = {
+        productoId: form.productoId,
+        sku: productoSeleccionado?.sku || "",
+        productoNombre: productoSeleccionado?.nombre || "",
+        tipo: tipoFinal,
+        cantidad: form.cantidad === "" ? 0 : Number(form.cantidad),
+        motivo: form.motivo,
+      }
+
+      await axios.post(API_MOVIMIENTOS, payloadMovimiento, {
+        headers: getHeaders(),
+      })
+
+      cerrarModal()
+      setPage(0)
+      await cargarMovimientos(0, true, filtro)
+      await cargarProductos()
+      setModalExito(true)
+    } catch (error) {
+      console.log(error)
+      setMensaje("No se pudo registrar el movimiento")
+    }
+  }
+
+  const formatearFecha = (fecha: any) => {
+    if (!fecha) return "-"
+    const f = new Date(fecha)
+    if (isNaN(f.getTime())) return String(fecha)
+
+    return f.toLocaleString("es-CO", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    })
+  }
+
+  const normalizarTipo = (tipo: any) => {
+    const t = String(tipo || "").toUpperCase()
+    if (t.includes("ENTRADA")) return "ENTRADA"
+    if (t.includes("SALIDA")) return "SALIDA"
+    return "MOVIMIENTO"
+  }
+
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-5">
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <ArrowUpRight size={18} className="text-[#7f78ff]" />
+            <h1 className="text-[32px] font-bold text-[#20224a] leading-none">
+              Registro de Movimientos
+            </h1>
+          </div>
+          <p className="text-[#8f95b2] text-sm">
+            Historial de entradas y salidas de productos
+          </p>
+        </div>
+
+        <div className="flex items-center gap-4">
+          <div className="relative">
+            <Search
+              size={16}
+              className="absolute left-4 top-1/2 -translate-y-1/2 text-[#9ea3bf]"
+            />
+            <input
+              type="text"
+              placeholder="Buscar..."
+              className="w-[220px] h-11 rounded-2xl bg-[#f3efff] border border-[#ece7fb] pl-10 pr-4 text-sm text-[#20224a] outline-none"
+            />
+          </div>
+
+          {puedeVerAlertas && (
+            <button
+              onClick={() => navigate("/alertas")}
+              className="w-11 h-11 rounded-2xl bg-[#fff8e6] border border-[#f2df9c] flex items-center justify-center relative"
+              type="button"
+            >
+              <Bell className="text-[#d6a11a]" size={16} />
+              <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-red-500"></span>
+            </button>
+          )}
+
+          {puedeRegistrarMovimiento && (
+            <button
+              onClick={abrirModal}
+              className="h-11 rounded-2xl bg-[#8f7cf8] text-white font-semibold px-5 flex items-center justify-center gap-2 hover:bg-[#7e69f6] transition"
+              type="button"
+            >
+              <Plus size={16} />
+              Nuevo Movimiento
+            </button>
+          )}
+        </div>
+      </div>
+
+      <section className="bg-[#f3efff] rounded-[28px] border border-[#ece7fb] p-6">
+        <div className="flex items-center gap-3 mb-6">
+          <TabButton
+            active={filtro === "todos"}
+            onClick={() => setFiltro("todos")}
+            label="Todos"
+          />
+          <TabButton
+            active={filtro === "entradas"}
+            onClick={() => setFiltro("entradas")}
+            label="Entradas"
+          />
+          <TabButton
+            active={filtro === "salidas"}
+            onClick={() => setFiltro("salidas")}
+            label="Salidas"
+          />
+        </div>
+
+        <div className="space-y-3">
+          {cargando ? (
+            <div className="px-6 py-12 text-center text-[#9ea3bf]">
+              Cargando movimientos...
+            </div>
+          ) : movimientos.length === 0 ? (
+            <div className="px-6 py-12 text-center text-[#9ea3bf]">
+              No hay movimientos para mostrar
+            </div>
+          ) : (
+            movimientos.map((movimiento, index) => {
+              const tipo = normalizarTipo(movimiento.tipo)
+              const esEntrada = tipo === "ENTRADA"
+
+              return (
+                <div
+                  key={movimiento.id || index}
+                  className="bg-white rounded-[18px] border border-[#ece7fb] px-5 py-4 flex items-center justify-between"
+                >
+                  <div className="flex items-center gap-4 min-w-0">
+                    <div className="w-11 h-11 rounded-xl bg-[#f5f2ff] flex items-center justify-center">
+                      {esEntrada ? (
+                        <ArrowDownLeft size={18} className="text-[#20a464]" />
+                      ) : (
+                        <ArrowUpRight size={18} className="text-[#e58a57]" />
+                      )}
+                    </div>
+
+                    <div className="min-w-0">
+                      <div className="font-semibold text-[#20224a] truncate">
+                        {movimiento.productoNombre || "Producto"}
+                      </div>
+                      <div className="text-[#9ea3bf] text-sm truncate">
+                        {(movimiento.sku || "SINSKU") +
+                          " · Usuario: " +
+                          (movimiento.usuario || "sistema") +
+                          (movimiento.motivo ? " · Motivo: " + movimiento.motivo : "")}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-5 shrink-0">
+                    <span
+                      className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold ${
+                        esEntrada
+                          ? "bg-[#eefbf3] text-[#20a464]"
+                          : "bg-[#fff1ea] text-[#e58a57]"
+                      }`}
+                    >
+                      {tipo}
+                    </span>
+
+                    <span
+                      className={`font-semibold text-sm ${
+                        esEntrada ? "text-[#20a464]" : "text-[#e35d5d]"
+                      }`}
+                    >
+                      {esEntrada ? "+" : "-"}
+                      {movimiento.cantidad ?? 0}
+                    </span>
+
+                    <span className="text-[#9ea3bf] text-sm min-w-[130px] text-right">
+                      {formatearFecha(movimiento.fecha)}
+                    </span>
+                  </div>
+                </div>
+              )
+            })
+          )}
+        </div>
+
+        {!cargando && movimientos.length > 0 && hayMas && (
+          <div className="flex justify-center mt-6">
+            <button
+              onClick={cargarMas}
+              disabled={cargandoMas}
+              className="h-9 px-5 rounded-full bg-[#ece7fb] text-[#7f78ff] text-sm font-semibold hover:bg-[#e2dcfb] transition disabled:opacity-60"
+              type="button"
+            >
+              {cargandoMas ? "Cargando..." : "Cargar más registros"}
+            </button>
+          </div>
+        )}
+      </section>
+
+      {modal && (
+        <div className="fixed inset-0 z-50 bg-black/30 backdrop-blur-[2px] flex items-center justify-center p-4">
+          <div className="w-full max-w-[660px] rounded-[26px] bg-white shadow-[0_20px_60px_rgba(39,33,79,0.18)] border border-[#ece7fb] overflow-hidden">
+            <div className="relative px-6 pt-5 pb-2">
+              <button
+                onClick={cerrarModal}
+                className="absolute right-5 top-5 text-[#8f95b2] hover:text-[#20224a] transition"
+                type="button"
+              >
+                <X size={18} />
+              </button>
+
+              <div className="text-center">
+                <h2 className="text-[22px] font-bold text-[#20224a] leading-none">
+                  Nuevo Movimiento
+                </h2>
+                <p className="text-[#8f95b2] text-sm mt-2">
+                  {esOperador
+                    ? "Registra una salida de inventario"
+                    : "Registra una entrada o salida de inventario"}
+                </p>
+              </div>
+            </div>
+
+            <div className="px-6 pb-5">
+              <div className="space-y-3">
+                <Field label="Producto">
+                  <select
+                    name="productoId"
+                    value={form.productoId}
+                    onChange={handleChange}
+                    className="modal-input"
+                  >
+                    <option value="">Selecciona un producto</option>
+                    {productos.map((producto) => (
+                      <option key={producto.id} value={producto.id}>
+                        {producto.nombre} - {producto.sku}
+                      </option>
+                    ))}
+                  </select>
+                </Field>
+
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="Tipo de Movimiento">
+                    <select
+                      name="tipo"
+                      value={esOperador ? "SALIDA" : form.tipo}
+                      onChange={handleChange}
+                      className="modal-input"
+                      disabled={esOperador}
+                    >
+                      {esOperador ? (
+                        <option value="SALIDA">Salida</option>
+                      ) : (
+                        <>
+                          <option value="ENTRADA">Entrada</option>
+                          <option value="SALIDA">Salida</option>
+                        </>
+                      )}
+                    </select>
+                  </Field>
+
+                  <Field label="Cantidad">
+                    <input
+                      name="cantidad"
+                      type="text"
+                      inputMode="numeric"
+                      value={form.cantidad}
+                      onChange={handleChange}
+                      className="modal-input"
+                      placeholder="0"
+                    />
+                  </Field>
+                </div>
+
+                <Field label="Motivo">
+                  <input
+                    name="motivo"
+                    value={form.motivo}
+                    onChange={handleChange}
+                    className="modal-input"
+                    placeholder="Ej: reposición, venta, ajuste"
+                  />
+                </Field>
+              </div>
+
+              <div className="border-t border-[#ece7fb] mt-5 pt-4 flex justify-center gap-3">
+                <button
+                  onClick={cerrarModal}
+                  className="h-10 px-6 rounded-xl border border-[#d9dce8] text-[#20224a] font-medium hover:bg-[#f8f8fc] transition"
+                  type="button"
+                >
+                  Cancelar
+                </button>
+
+                <button
+                  onClick={registrarMovimiento}
+                  className="h-10 px-6 rounded-xl bg-[#8f7cf8] text-white font-semibold hover:bg-[#7e69f6] transition"
+                  type="button"
+                >
+                  Guardar Movimiento
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {modalExito && (
+        <div className="fixed inset-0 z-[70] bg-black/30 backdrop-blur-[2px] flex items-center justify-center p-4">
+          <div className="w-full max-w-[360px] bg-white rounded-[14px] shadow-[0_20px_60px_rgba(39,33,79,0.18)] px-8 py-8 text-center">
+            <div className="flex justify-center mb-3">
+              <div className="w-14 h-14 rounded-full flex items-center justify-center">
+                <Check size={46} className="text-green-600" strokeWidth={2.5} />
+              </div>
+            </div>
+
+            <h3 className="text-[28px] font-bold text-[#20224a] leading-none mb-4">
+              ¡Éxito!
+            </h3>
+
+            <p className="text-[#4b5563] text-[17px] mb-6">
+              Movimiento registrado exitosamente
+            </p>
+
+            <button
+              onClick={() => setModalExito(false)}
+              className="h-10 px-8 rounded-md bg-green-700 text-white font-semibold hover:bg-green-800 transition"
+              type="button"
+            >
+              Cerrar
+            </button>
+          </div>
+        </div>
+      )}
+
+      {mensaje && (
+        <div className="fixed right-6 bottom-6 z-[60] rounded-2xl bg-[#20224a] text-white px-5 py-3 shadow-lg">
+          {mensaje}
+        </div>
+      )}
+
+      <style>{`
+        .modal-input {
+          width: 100%;
+          height: 44px;
+          border: 1px solid #d9dce8;
+          border-radius: 12px;
+          padding: 0 14px;
+          outline: none;
+          color: #20224a;
+          background: white;
+        }
+
+        .modal-input:focus {
+          border-color: #8f7cf8;
+          box-shadow: 0 0 0 3px rgba(143, 124, 248, 0.12);
+        }
+
+        .modal-input:disabled {
+          background: #f8f8fc;
+          color: #20224a;
+          cursor: not-allowed;
+        }
+      `}</style>
+    </div>
+  )
+}
+
+type TabButtonProps = {
+  active: boolean
+  onClick: () => void
+  label: string
+}
+
+function TabButton({ active, onClick, label }: TabButtonProps) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-4 h-10 rounded-2xl text-sm font-semibold transition ${
+        active
+          ? "bg-[#8f7cf8] text-white"
+          : "text-[#8f95b2] bg-transparent"
+      }`}
+      type="button"
+    >
+      {label}
+    </button>
+  )
+}
+
+type FieldProps = {
+  label: string
+  children: React.ReactNode
+}
+
+function Field({ label, children }: FieldProps) {
+  return (
+    <div>
+      <label className="block text-sm text-[#20224a] mb-2">{label}</label>
+      {children}
+    </div>
+  )
+}
+
+export default Movimientos
