@@ -202,11 +202,12 @@ function MainLayout() {
             <div className="w-10 h-10 rounded-full app-avatar text-white flex items-center justify-center font-semibold text-sm">
               {esSuperAdmin ? "SA" : esAdmin ? "AD" : esSupervisor ? "SU" : esOperador ? "OP" : "US"}
             </div>
-            <div>
-              <p className="text-sm font-semibold app-text">
+
+            <div className="min-w-0">
+              <p className="text-sm font-semibold app-text truncate">
                 {payload?.sub || payload?.subject || "Usuario"}
               </p>
-              <p className="text-xs app-muted">
+              <p className="text-xs app-muted truncate">
                 {esSuperAdmin
                   ? "Super Admin"
                   : esAdmin
@@ -292,6 +293,11 @@ function MainLayout() {
           color: var(--app-text);
         }
 
+        .app-theme-option {
+          color: var(--app-text);
+          background: var(--app-sidebar);
+        }
+
         .app-theme-option:hover {
           background: var(--app-selected);
         }
@@ -309,8 +315,16 @@ function MainLayout() {
           color: var(--app-primary);
         }
 
+        .app-menu-item:hover svg {
+          color: var(--app-primary);
+        }
+
         .app-menu-item.active {
           background: var(--app-selected);
+          color: var(--app-primary);
+        }
+
+        .app-menu-item.active svg {
           color: var(--app-primary);
         }
       `}</style>
