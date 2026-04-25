@@ -14,6 +14,7 @@ import {
   eliminarUsuario,
   getUsuarios,
 } from "../api/usuarios"
+import { useAppTheme } from "../theme/AppThemeContext"
 
 function Usuarios() {
   const [usuarios, setUsuarios] = useState<any[]>([])
@@ -27,6 +28,8 @@ function Usuarios() {
   const [modalExito, setModalExito] = useState(false)
   const [mensajeExito, setMensajeExito] = useState("Operación completada exitosamente")
   const [mensaje, setMensaje] = useState("")
+
+  const { theme } = useAppTheme()
 
   const [form, setForm] = useState({
     nombreUsuario: "",
@@ -259,35 +262,71 @@ function Usuarios() {
 
   if (!puedeVerUsuarios) {
     return (
-      <div className="p-6 bg-[#f5f2ff] min-h-screen flex items-center justify-center">
-        <div className="bg-white rounded-2xl border border-[#ece7fb] px-8 py-10 text-center">
-          <h2 className="text-2xl font-bold text-[#20224a] mb-2">Acceso restringido</h2>
-          <p className="text-[#8f95b2]">
+      <div
+        className="usuarios-page p-6 min-h-screen flex items-center justify-center"
+        style={
+          {
+            "--usuarios-page": theme.page,
+            "--usuarios-card": theme.card,
+            "--usuarios-panel": theme.panel,
+            "--usuarios-input": theme.input,
+            "--usuarios-text": theme.text,
+            "--usuarios-muted": theme.muted,
+            "--usuarios-border": theme.border,
+            "--usuarios-selected": theme.selected,
+            "--usuarios-primary": theme.primary,
+            "--usuarios-primary-hover": theme.primaryHover,
+            "--usuarios-button-dark": theme.buttonDark,
+          } as React.CSSProperties
+        }
+      >
+        <div className="usuarios-card rounded-2xl border px-8 py-10 text-center">
+          <h2 className="text-2xl font-bold usuarios-title mb-2">Acceso restringido</h2>
+          <p className="usuarios-muted">
             No tienes permisos para acceder al módulo de usuarios.
           </p>
         </div>
+
+        <style>{usuariosStyles}</style>
       </div>
     )
   }
 
   return (
-    <div className="p-6 bg-[#f5f2ff] min-h-screen">
-      <section className="bg-[#f3efff] rounded-[28px] border border-[#ece7fb] p-6">
+    <div
+      className="usuarios-page p-6 min-h-screen"
+      style={
+        {
+          "--usuarios-page": theme.page,
+          "--usuarios-card": theme.card,
+          "--usuarios-panel": theme.panel,
+          "--usuarios-input": theme.input,
+          "--usuarios-text": theme.text,
+          "--usuarios-muted": theme.muted,
+          "--usuarios-border": theme.border,
+          "--usuarios-selected": theme.selected,
+          "--usuarios-primary": theme.primary,
+          "--usuarios-primary-hover": theme.primaryHover,
+          "--usuarios-button-dark": theme.buttonDark,
+        } as React.CSSProperties
+      }
+    >
+      <section className="usuarios-panel rounded-[28px] border p-6">
         <div className="flex items-start justify-between gap-4 mb-5">
           <div>
             <div className="flex items-center gap-2 mb-1">
-              <Users size={18} className="text-[#6e54ff]" />
-              <h2 className="text-[22px] font-bold text-[#20224a]">Gestión de Usuarios</h2>
+              <Users size={18} className="usuarios-primary-icon" />
+              <h2 className="text-[22px] font-bold usuarios-title">Gestión de Usuarios</h2>
             </div>
 
-            <p className="text-[#8f95b2] text-sm">
+            <p className="usuarios-muted text-sm">
               Administra roles, estado y acceso del sistema
             </p>
           </div>
 
           <button
             onClick={abrirCrear}
-            className="h-11 rounded-2xl bg-[#8f7cf8] text-white font-semibold px-5 flex items-center justify-center gap-2 hover:bg-[#7e69f6] transition shrink-0"
+            className="h-11 rounded-2xl usuarios-primary-button text-white font-semibold px-5 flex items-center justify-center gap-2 transition shrink-0"
           >
             <Plus size={16} />
             Nuevo Usuario
@@ -297,23 +336,23 @@ function Usuarios() {
         <div className="relative mb-4">
           <Search
             size={16}
-            className="absolute left-4 top-1/2 -translate-y-1/2 text-[#9ea3bf]"
+            className="absolute left-4 top-1/2 -translate-y-1/2 usuarios-muted-icon"
           />
           <input
             type="text"
             placeholder="Buscar por nombre o rol..."
             value={busqueda}
             onChange={(e) => setBusqueda(e.target.value)}
-            className="w-full h-11 rounded-2xl bg-white border border-[#ece7fb] pl-10 pr-4 text-sm text-[#20224a] outline-none"
+            className="usuarios-input w-full h-11 rounded-2xl border pl-10 pr-4 text-sm outline-none"
           />
         </div>
 
         {cargando ? (
-          <div className="bg-white rounded-[24px] border border-[#ece7fb] px-6 py-12 text-center text-[#9ea3bf]">
+          <div className="usuarios-card rounded-[24px] border px-6 py-12 text-center usuarios-muted">
             Cargando usuarios...
           </div>
         ) : usuariosFiltrados.length === 0 ? (
-          <div className="bg-white rounded-[24px] border border-[#ece7fb] px-6 py-12 text-center text-[#9ea3bf]">
+          <div className="usuarios-card rounded-[24px] border px-6 py-12 text-center usuarios-muted">
             No hay usuarios para mostrar
           </div>
         ) : (
@@ -325,18 +364,18 @@ function Usuarios() {
               return (
                 <div
                   key={usuario.id || index}
-                  className="bg-white rounded-[20px] border border-[#ece7fb] px-5 py-4 flex items-center justify-between"
+                  className="usuarios-card rounded-[20px] border px-5 py-4 flex items-center justify-between"
                 >
                   <div className="flex items-center gap-4">
-                    <div className="w-12 h-12 rounded-full bg-[#8f7cf8] text-white flex items-center justify-center font-semibold">
+                    <div className="w-12 h-12 rounded-full usuarios-avatar text-white flex items-center justify-center font-semibold">
                       {iniciales}
                     </div>
 
                     <div>
-                      <div className="font-semibold text-[#20224a] text-[20px] leading-none mb-1">
+                      <div className="font-semibold usuarios-title text-[20px] leading-none mb-1">
                         {usuario.nombreUsuario}
                       </div>
-                      <div className="text-[#9ea3bf] text-sm">
+                      <div className="usuarios-muted text-sm">
                         {usuario.nombreUsuario}@inventario.com
                       </div>
                     </div>
@@ -352,7 +391,7 @@ function Usuarios() {
 
                     <button
                       onClick={() => abrirEditar(usuario)}
-                      className="w-9 h-9 rounded-xl bg-[#f5f2ff] flex items-center justify-center text-[#f2a15e] hover:bg-[#eee8ff] transition"
+                      className="w-9 h-9 rounded-xl bg-[#fff7ed] flex items-center justify-center text-[#f2a15e] hover:bg-[#ffedd5] transition"
                     >
                       <Pencil size={15} />
                     </button>
@@ -373,20 +412,20 @@ function Usuarios() {
 
       {modal && (
         <div className="fixed inset-0 z-50 bg-black/30 backdrop-blur-[2px] flex items-center justify-center p-4">
-          <div className="w-full max-w-[620px] rounded-[26px] bg-white shadow-[0_20px_60px_rgba(39,33,79,0.18)] border border-[#ece7fb] overflow-hidden">
+          <div className="w-full max-w-[620px] rounded-[26px] usuarios-modal shadow-[0_20px_60px_rgba(39,33,79,0.18)] border overflow-hidden">
             <div className="relative px-6 pt-5 pb-2">
               <button
                 onClick={cerrarModal}
-                className="absolute right-5 top-5 text-[#8f95b2] hover:text-[#20224a] transition"
+                className="absolute right-5 top-5 usuarios-muted hover:opacity-80 transition"
               >
                 <X size={18} />
               </button>
 
               <div className="text-center">
-                <h2 className="text-[22px] font-bold text-[#20224a] leading-none">
+                <h2 className="text-[22px] font-bold usuarios-title leading-none">
                   {modoEdicion ? "Editar Usuario" : "Nuevo Usuario"}
                 </h2>
-                <p className="text-[#8f95b2] text-sm mt-2">
+                <p className="usuarios-muted text-sm mt-2">
                   Gestiona acceso, rol y estado del usuario
                 </p>
               </div>
@@ -452,17 +491,17 @@ function Usuarios() {
                 </div>
               </div>
 
-              <div className="border-t border-[#ece7fb] mt-5 pt-4 flex justify-center gap-3">
+              <div className="border-t usuarios-border mt-5 pt-4 flex justify-center gap-3">
                 <button
                   onClick={cerrarModal}
-                  className="h-10 px-6 rounded-xl border border-[#d9dce8] text-[#20224a] font-medium hover:bg-[#f8f8fc] transition"
+                  className="h-10 px-6 rounded-xl usuarios-cancel-button border font-medium transition"
                 >
                   Cancelar
                 </button>
 
                 <button
                   onClick={guardarUsuario}
-                  className="h-10 px-6 rounded-xl bg-[#8f7cf8] text-white font-semibold hover:bg-[#7e69f6] transition"
+                  className="h-10 px-6 rounded-xl usuarios-primary-button text-white font-semibold transition"
                 >
                   {modoEdicion ? "Guardar Cambios" : "Guardar Usuario"}
                 </button>
@@ -474,21 +513,21 @@ function Usuarios() {
 
       {modalEliminar && usuarioAEliminar && (
         <div className="fixed inset-0 z-50 bg-black/30 backdrop-blur-[2px] flex items-center justify-center p-4">
-          <div className="w-full max-w-[480px] rounded-[18px] bg-white shadow-[0_20px_60px_rgba(39,33,79,0.18)] border border-[#ece7fb] overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-[#ece7fb]">
-              <h3 className="text-[18px] font-semibold text-[#20224a]">
+          <div className="w-full max-w-[480px] rounded-[18px] usuarios-modal shadow-[0_20px_60px_rgba(39,33,79,0.18)] border overflow-hidden">
+            <div className="flex items-center justify-between px-5 py-4 border-b usuarios-border">
+              <h3 className="text-[18px] font-semibold usuarios-title">
                 Confirmar eliminación
               </h3>
 
               <button
                 onClick={cerrarEliminar}
-                className="text-[#8f95b2] hover:text-[#20224a] transition"
+                className="usuarios-muted hover:opacity-80 transition"
               >
                 <X size={18} />
               </button>
             </div>
 
-            <div className="px-5 py-6 text-[#20224a] text-sm leading-6">
+            <div className="px-5 py-6 usuarios-title text-sm leading-6">
               <p>
                 ¿Eliminar el usuario <span className="font-semibold">{usuarioAEliminar.nombreUsuario}</span>?
               </p>
@@ -498,7 +537,7 @@ function Usuarios() {
             <div className="px-5 pb-4 flex justify-end gap-3">
               <button
                 onClick={cerrarEliminar}
-                className="h-10 px-5 rounded-xl bg-[#eef1f6] text-[#20224a] font-medium hover:bg-[#e6eaf2] transition"
+                className="h-10 px-5 rounded-xl usuarios-cancel-button border font-medium transition"
               >
                 Cancelar
               </button>
@@ -516,18 +555,18 @@ function Usuarios() {
 
       {modalExito && (
         <div className="fixed inset-0 z-[70] bg-black/30 backdrop-blur-[2px] flex items-center justify-center p-4">
-          <div className="w-full max-w-[360px] bg-white rounded-[14px] shadow-[0_20px_60px_rgba(39,33,79,0.18)] px-8 py-8 text-center">
+          <div className="w-full max-w-[360px] usuarios-modal rounded-[14px] shadow-[0_20px_60px_rgba(39,33,79,0.18)] px-8 py-8 text-center">
             <div className="flex justify-center mb-3">
               <div className="w-14 h-14 rounded-full flex items-center justify-center">
                 <Check size={46} className="text-green-600" strokeWidth={2.5} />
               </div>
             </div>
 
-            <h3 className="text-[28px] font-bold text-[#20224a] leading-none mb-4">
+            <h3 className="text-[28px] font-bold usuarios-title leading-none mb-4">
               Éxito
             </h3>
 
-            <p className="text-[#4b5563] text-[17px] mb-6">
+            <p className="usuarios-muted text-[17px] mb-6">
               {mensajeExito}
             </p>
 
@@ -542,28 +581,12 @@ function Usuarios() {
       )}
 
       {mensaje && (
-        <div className="fixed right-6 bottom-6 z-[60] rounded-2xl bg-[#20224a] text-white px-5 py-3 shadow-lg">
+        <div className="fixed right-6 bottom-6 z-[60] rounded-2xl usuarios-toast px-5 py-3 shadow-lg">
           {mensaje}
         </div>
       )}
 
-      <style>{`
-        .modal-input {
-          width: 100%;
-          height: 44px;
-          border: 1px solid #d9dce8;
-          border-radius: 12px;
-          padding: 0 14px;
-          outline: none;
-          color: #20224a;
-          background: white;
-        }
-
-        .modal-input:focus {
-          border-color: #8f7cf8;
-          box-shadow: 0 0 0 3px rgba(143, 124, 248, 0.12);
-        }
-      `}</style>
+      <style>{usuariosStyles}</style>
     </div>
   )
 }
@@ -611,10 +634,100 @@ function Field({
 }) {
   return (
     <div>
-      <label className="block text-sm text-[#20224a] mb-2">{label}</label>
+      <label className="block text-sm usuarios-title mb-2">{label}</label>
       {children}
     </div>
   )
 }
+
+const usuariosStyles = `
+  .usuarios-page {
+    background: var(--usuarios-page);
+    color: var(--usuarios-text);
+  }
+
+  .usuarios-title {
+    color: var(--usuarios-text);
+  }
+
+  .usuarios-muted,
+  .usuarios-muted-icon {
+    color: var(--usuarios-muted);
+  }
+
+  .usuarios-primary-icon {
+    color: var(--usuarios-primary);
+  }
+
+  .usuarios-border {
+    border-color: var(--usuarios-border);
+  }
+
+  .usuarios-panel {
+    background: var(--usuarios-panel);
+    border-color: var(--usuarios-border);
+  }
+
+  .usuarios-card,
+  .usuarios-modal {
+    background: var(--usuarios-card);
+    border-color: var(--usuarios-border);
+    color: var(--usuarios-text);
+  }
+
+  .usuarios-input,
+  .modal-input {
+    background: var(--usuarios-input);
+    border-color: var(--usuarios-border);
+    color: var(--usuarios-text);
+  }
+
+  .usuarios-input::placeholder,
+  .modal-input::placeholder {
+    color: var(--usuarios-muted);
+  }
+
+  .usuarios-input:focus,
+  .modal-input:focus {
+    border-color: var(--usuarios-primary);
+    box-shadow: 0 0 0 3px color-mix(in srgb, var(--usuarios-primary) 18%, transparent);
+  }
+
+  .usuarios-primary-button {
+    background: var(--usuarios-primary);
+  }
+
+  .usuarios-primary-button:hover {
+    background: var(--usuarios-primary-hover);
+  }
+
+  .usuarios-avatar {
+    background: var(--usuarios-primary);
+  }
+
+  .usuarios-cancel-button {
+    background: transparent;
+    border-color: var(--usuarios-border);
+    color: var(--usuarios-text);
+  }
+
+  .usuarios-cancel-button:hover {
+    background: var(--usuarios-input);
+  }
+
+  .usuarios-toast {
+    background: var(--usuarios-button-dark);
+    color: white;
+  }
+
+  .modal-input {
+    width: 100%;
+    height: 44px;
+    border: 1px solid var(--usuarios-border);
+    border-radius: 12px;
+    padding: 0 14px;
+    outline: none;
+  }
+`
 
 export default Usuarios

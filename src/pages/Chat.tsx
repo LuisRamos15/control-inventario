@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { MessageCircle, Search, Send, Plus, Users } from "lucide-react"
 import {
   conectarChatSocket,
@@ -20,6 +20,7 @@ import {
 import type { ChatContacto, ChatMensaje } from "../types/chat"
 import type { ChatGrupo, ChatGrupoMensaje, ChatGrupoReq } from "../types/chatGrupo"
 import type { Client, StompSubscription } from "@stomp/stompjs"
+import { useAppTheme } from "../theme/AppThemeContext"
 
 function Chat() {
   const [contactos, setContactos] = useState<ChatContacto[]>([])
@@ -42,6 +43,7 @@ function Chat() {
   const [cargandoGrupos, setCargandoGrupos] = useState(false)
   const [modalGrupoAbierto, setModalGrupoAbierto] = useState(false)
   const [creandoGrupo, setCreandoGrupo] = useState(false)
+
   const [nuevoGrupo, setNuevoGrupo] = useState<ChatGrupoReq>({
     nombre: "",
     descripcion: "",
@@ -54,13 +56,17 @@ function Chat() {
   const presenciaRef = useRef<number | null>(null)
   const contactoSeleccionadoRef = useRef<ChatContacto | null>(null)
   const grupoSeleccionadoRef = useRef<ChatGrupo | null>(null)
+  const gruposRef = useRef<ChatGrupo[]>([])
   const usuarioActualRef = useRef("")
   const mensajesProcesadosRef = useRef<Set<string>>(new Set())
   const mensajesGrupoProcesadosRef = useRef<Set<string>>(new Set())
-  const suscripcionesGruposRef = useRef<StompSubscription[]>([])
+  const suscripcionesGruposRef = useRef<Map<string, StompSubscription>>(new Map())
   const suscripcionNuevosGruposRef = useRef<StompSubscription | null>(null)
+  const usuarioEstaAlFinalRef = useRef(true)
+  const forzarBajarAlFinalRef = useRef(false)
 
   const token = localStorage.getItem("token") || ""
+  const { theme } = useAppTheme()
 
   const decodeJwt = (jwt: string) => {
     try {
@@ -97,6 +103,10 @@ function Chat() {
   useEffect(() => {
     grupoSeleccionadoRef.current = grupoSeleccionado
   }, [grupoSeleccionado])
+
+  useEffect(() => {
+    gruposRef.current = grupos
+  }, [grupos])
 
   const rolActual = useMemo(() => {
     const valores: string[] = []
@@ -143,11 +153,50 @@ function Chat() {
 
   const puedeCrearGrupo = rolActual === "SUPER_ADMIN" || rolActual === "ADMIN"
 
+  const usuarioEstaCercaDelFinal = () => {
+    const contenedor = mensajesRef.current
+    if (!contenedor) return true
+
+    const distanciaFinal =
+      contenedor.scrollHeight - contenedor.scrollTop - contenedor.clientHeight
+
+    return distanciaFinal < 120
+  }
+
+  const actualizarEstadoScroll = () => {
+    usuarioEstaAlFinalRef.current = usuarioEstaCercaDelFinal()
+  }
+
+  const bajarAlFinal = () => {
+    const contenedor = mensajesRef.current
+    if (!contenedor) return
+
+    requestAnimationFrame(() => {
+      contenedor.scrollTop = contenedor.scrollHeight
+
+      requestAnimationFrame(() => {
+        contenedor.scrollTop = contenedor.scrollHeight
+        usuarioEstaAlFinalRef.current = true
+      })
+    })
+  }
+
+  const bajarSiCorresponde = () => {
+    if (forzarBajarAlFinalRef.current || usuarioEstaAlFinalRef.current) {
+      bajarAlFinal()
+      forzarBajarAlFinalRef.current = false
+    }
+  }
+
+  const prepararEntradaAlChat = () => {
+    usuarioEstaAlFinalRef.current = true
+    forzarBajarAlFinalRef.current = true
+  }
+
   const moverContactoArriba = (nombreUsuario: string) => {
     setContactos((prev) => {
       const index = prev.findIndex((c) => c.nombreUsuario === nombreUsuario)
       if (index <= 0) return prev
-
       const copia = [...prev]
       const [contacto] = copia.splice(index, 1)
       copia.unshift(contacto)
@@ -159,7 +208,6 @@ function Chat() {
     setGrupos((prev) => {
       const index = prev.findIndex((g) => g.id === grupoId)
       if (index <= 0) return prev
-
       const copia = [...prev]
       const [grupo] = copia.splice(index, 1)
       copia.unshift(grupo)
@@ -195,6 +243,8 @@ function Chat() {
     setMensajes([])
     setMensajesGrupo([])
     setTexto("")
+    usuarioEstaAlFinalRef.current = true
+    forzarBajarAlFinalRef.current = false
 
     if (pollingRef.current) {
       window.clearInterval(pollingRef.current)
@@ -250,7 +300,10 @@ function Chat() {
 
   const cargarConversacion = async (usuario: string, mostrarCarga = true) => {
     try {
-      if (mostrarCarga) setCargandoMensajes(true)
+      if (mostrarCarga) {
+        prepararEntradaAlChat()
+        setCargandoMensajes(true)
+      }
 
       const data = await getChatConversacion(usuario)
       setMensajes(Array.isArray(data) ? data : [])
@@ -267,7 +320,10 @@ function Chat() {
 
   const cargarMensajesGrupo = async (grupoId: string, mostrarCarga = true) => {
     try {
-      if (mostrarCarga) setCargandoMensajes(true)
+      if (mostrarCarga) {
+        prepararEntradaAlChat()
+        setCargandoMensajes(true)
+      }
 
       const data = await getChatGrupoMensajes(grupoId)
       setMensajesGrupo(Array.isArray(data) ? data : [])
@@ -286,24 +342,21 @@ function Chat() {
     suscripcionesGruposRef.current.forEach((sub) => {
       try {
         sub.unsubscribe()
-      } catch {
-      }
+      } catch {}
     })
-    suscripcionesGruposRef.current = []
+    suscripcionesGruposRef.current.clear()
   }
 
   const suscribirANuevosGrupos = () => {
     const client = socketRef.current
     const actual = usuarioActualRef.current
-
     if (!client || !client.connected || !actual) return
 
     try {
       if (suscripcionNuevosGruposRef.current) {
         suscripcionNuevosGruposRef.current.unsubscribe()
       }
-    } catch {
-    }
+    } catch {}
 
     suscripcionNuevosGruposRef.current = client.subscribe(
       `/topic/chat/grupos/${actual}`,
@@ -312,6 +365,9 @@ function Chat() {
           const grupo = JSON.parse(message.body) as ChatGrupo
           agregarGrupoSiNoExiste(grupo)
           setVistaChat("grupos")
+          setTimeout(() => {
+            suscribirAGrupos()
+          }, 100)
         } catch (error) {
           console.log(error)
         }
@@ -321,12 +377,12 @@ function Chat() {
 
   const suscribirAGrupos = () => {
     const client = socketRef.current
-
     if (!client || !client.connected) return
 
-    limpiarSuscripcionesGrupos()
+    gruposRef.current.forEach((grupo) => {
+      if (!grupo.id) return
+      if (suscripcionesGruposRef.current.has(grupo.id)) return
 
-    grupos.forEach((grupo) => {
       const sub = client.subscribe(`/topic/chat/grupo/${grupo.id}`, (message) => {
         try {
           const body = JSON.parse(message.body) as ChatGrupoMensaje
@@ -351,6 +407,10 @@ function Chat() {
           }
 
           if (estaAbierto) {
+            if (esMio || usuarioEstaAlFinalRef.current) {
+              forzarBajarAlFinalRef.current = true
+            }
+
             setMensajesGrupo((prev) => {
               const existe = prev.some((item) => item.id === body.id)
               if (existe) return prev
@@ -362,7 +422,7 @@ function Chat() {
         }
       })
 
-      suscripcionesGruposRef.current.push(sub)
+      suscripcionesGruposRef.current.set(grupo.id, sub)
     })
   }
 
@@ -414,6 +474,7 @@ function Chat() {
       return
     }
 
+    prepararEntradaAlChat()
     limpiarNoLeidos(contactoSeleccionado.nombreUsuario)
     cargarConversacion(contactoSeleccionado.nombreUsuario, true)
 
@@ -437,6 +498,7 @@ function Chat() {
       return
     }
 
+    prepararEntradaAlChat()
     limpiarNoLeidosGrupo(grupoSeleccionado.id)
     cargarMensajesGrupo(grupoSeleccionado.id, true)
 
@@ -485,6 +547,10 @@ function Chat() {
         }
 
         if (estaAbierto) {
+          if (esMio || usuarioEstaAlFinalRef.current) {
+            forzarBajarAlFinalRef.current = true
+          }
+
           setMensajes((prev) => {
             const existe = prev.some((item) => item.id === mensajeRecibido.id)
             if (existe) return prev
@@ -515,8 +581,7 @@ function Chat() {
         if (suscripcionNuevosGruposRef.current) {
           suscripcionNuevosGruposRef.current.unsubscribe()
         }
-      } catch {
-      }
+      } catch {}
 
       desconectarChatSocket(socketRef.current)
       socketRef.current = null
@@ -524,8 +589,9 @@ function Chat() {
   }, [])
 
   useEffect(() => {
+    gruposRef.current = grupos
     suscribirAGrupos()
-  }, [grupos])
+  }, [grupos.length])
 
   useEffect(() => {
     suscribirANuevosGrupos()
@@ -537,10 +603,9 @@ function Chat() {
     return () => clearTimeout(timer)
   }, [mensajeError])
 
-  useEffect(() => {
-    if (!mensajesRef.current) return
-    mensajesRef.current.scrollTop = mensajesRef.current.scrollHeight
-  }, [mensajes, mensajesGrupo])
+  useLayoutEffect(() => {
+    bajarSiCorresponde()
+  }, [mensajes, mensajesGrupo, cargandoMensajes, contactoSeleccionado, grupoSeleccionado])
 
   const contactosFiltrados = useMemo(() => {
     const q = busqueda.trim().toLowerCase()
@@ -565,6 +630,7 @@ function Chat() {
   }, [grupos, busqueda])
 
   const seleccionarContacto = (contacto: ChatContacto) => {
+    prepararEntradaAlChat()
     setGrupoSeleccionado(null)
     setMensajesGrupo([])
     setContactoSeleccionado(contacto)
@@ -573,6 +639,7 @@ function Chat() {
   }
 
   const seleccionarGrupo = (grupo: ChatGrupo) => {
+    prepararEntradaAlChat()
     setContactoSeleccionado(null)
     setMensajes([])
     setGrupoSeleccionado(grupo)
@@ -629,7 +696,11 @@ function Chat() {
       await cargarGrupos()
       setVistaChat("grupos")
       setContactoSeleccionado(null)
+      prepararEntradaAlChat()
       setGrupoSeleccionado(grupoCreado)
+      setTimeout(() => {
+        suscribirAGrupos()
+      }, 100)
     } catch (error) {
       console.log(error)
       setMensajeError("No se pudo crear el grupo")
@@ -645,6 +716,7 @@ function Chat() {
     if (contactoSeleccionado) {
       try {
         setEnviando(true)
+        forzarBajarAlFinalRef.current = true
 
         const guardado = await enviarChatMensaje({
           destinatario: contactoSeleccionado.nombreUsuario,
@@ -673,6 +745,7 @@ function Chat() {
     if (grupoSeleccionado) {
       try {
         setEnviando(true)
+        forzarBajarAlFinalRef.current = true
 
         const guardado = await enviarChatGrupoMensaje(grupoSeleccionado.id, {
           mensaje,
@@ -702,25 +775,49 @@ function Chat() {
   }
 
   return (
-    <div className="p-6 bg-[#f5f2ff] min-h-screen">
-      <div className="flex items-center gap-2 mb-5">
-        <MessageCircle size={20} className="text-[#7f78ff]" />
-        <h1 className="text-[32px] font-bold text-[#20224a] leading-none">
-          Chat Interno
-        </h1>
+    <div
+      className="chat-theme p-6 min-h-screen"
+      style={
+        {
+          "--chat-page": theme.page,
+          "--chat-card": theme.card,
+          "--chat-panel": theme.panel,
+          "--chat-input": theme.input,
+          "--chat-text": theme.text,
+          "--chat-muted": theme.muted,
+          "--chat-border": theme.border,
+          "--chat-selected": theme.selected,
+          "--chat-selected-border": theme.selectedBorder,
+          "--chat-primary": theme.primary,
+          "--chat-primary-hover": theme.primaryHover,
+          "--chat-button-dark": theme.buttonDark,
+          "--chat-mine": theme.mine,
+          "--chat-other": theme.other,
+          "--chat-other-border": theme.otherBorder,
+          "--chat-other-text": theme.otherText,
+        } as React.CSSProperties
+      }
+    >
+      <div className="flex items-center justify-between mb-5">
+        <div className="flex items-center gap-2">
+          <MessageCircle size={20} className="chat-primary-icon" />
+          <h1 className="text-[32px] font-bold leading-none chat-title">
+            Chat Interno
+          </h1>
+        </div>
       </div>
 
       <div className="grid grid-cols-[320px_1fr] gap-5 h-[calc(100vh-170px)]">
-        <section className="bg-white rounded-[28px] border border-[#ece7fb] flex flex-col overflow-hidden">
-          <div className="p-5 border-b border-[#f0ebfc]">
+        <section className="chat-card rounded-[28px] border flex flex-col overflow-hidden">
+          <div className="p-5 border-b chat-border">
             <div className="relative">
-              <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#9ea3bf]" />
+              <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 chat-muted-icon" />
               <input
                 type="text"
                 placeholder={vistaChat === "usuarios" ? "Buscar usuario o rol..." : "Buscar grupo..."}
                 value={busqueda}
                 onChange={(e) => setBusqueda(e.target.value)}
-                className="w-full h-11 rounded-2xl bg-[#f8f6ff] border border-[#ece7fb] pl-10 pr-4 text-sm text-[#20224a] outline-none"
+                className="chat-input w-full h-11 rounded-2xl border pl-10 pr-4 text-sm outline-none"
               />
             </div>
 
@@ -729,9 +826,7 @@ function Chat() {
                 type="button"
                 onClick={() => setVistaChat("usuarios")}
                 className={`h-10 rounded-2xl text-sm font-semibold transition ${
-                  vistaChat === "usuarios"
-                    ? "bg-[#8f7cf8] text-white"
-                    : "bg-[#f8f6ff] text-[#7f78ff] border border-[#ece7fb]"
+                  vistaChat === "usuarios" ? "chat-tab-active" : "chat-tab"
                 }`}
               >
                 Usuarios
@@ -741,9 +836,7 @@ function Chat() {
                 type="button"
                 onClick={() => setVistaChat("grupos")}
                 className={`h-10 rounded-2xl text-sm font-semibold transition ${
-                  vistaChat === "grupos"
-                    ? "bg-[#8f7cf8] text-white"
-                    : "bg-[#f8f6ff] text-[#7f78ff] border border-[#ece7fb]"
+                  vistaChat === "grupos" ? "chat-tab-active" : "chat-tab"
                 }`}
               >
                 Grupos
@@ -754,7 +847,7 @@ function Chat() {
               <button
                 type="button"
                 onClick={() => setModalGrupoAbierto(true)}
-                className="mt-3 w-full h-10 rounded-2xl bg-[#20224a] text-white text-sm font-semibold flex items-center justify-center gap-2 hover:bg-[#2d2f63] transition"
+                className="mt-3 w-full h-10 rounded-2xl chat-dark-button text-sm font-semibold flex items-center justify-center gap-2 transition"
               >
                 <Plus size={15} />
                 Nuevo grupo
@@ -765,11 +858,11 @@ function Chat() {
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
             {vistaChat === "usuarios" ? (
               cargandoContactos ? (
-                <div className="h-full flex items-center justify-center text-[#9ea3bf] text-sm">
+                <div className="h-full flex items-center justify-center chat-muted text-sm">
                   Cargando contactos...
                 </div>
               ) : contactosFiltrados.length === 0 ? (
-                <div className="h-full flex items-center justify-center text-[#9ea3bf] text-sm text-center px-4">
+                <div className="h-full flex items-center justify-center chat-muted text-sm text-center px-4">
                   No hay usuarios disponibles para chatear
                 </div>
               ) : (
@@ -783,25 +876,23 @@ function Chat() {
                       key={contacto.id}
                       onClick={() => seleccionarContacto(contacto)}
                       className={`w-full text-left rounded-2xl px-4 py-3 transition border ${
-                        seleccionado
-                          ? "bg-[#f3efff] border-[#dcd2ff]"
-                          : "bg-white border-transparent hover:bg-[#faf8ff]"
+                        seleccionado ? "chat-item-selected" : "chat-item"
                       }`}
                       type="button"
                     >
                       <div className="flex items-center justify-between gap-3">
                         <div className="min-w-0">
-                          <div className="font-semibold text-[#20224a] truncate">
+                          <div className="font-semibold truncate chat-text">
                             {contacto.nombreUsuario}
                           </div>
-                          <div className="text-xs text-[#8f95b2] mt-1">
+                          <div className="text-xs mt-1 chat-muted">
                             {contacto.rol}
                           </div>
                         </div>
 
                         <div className="flex items-center gap-2 shrink-0">
                           {cantidadNoLeidos > 0 && (
-                            <span className="min-w-5 h-5 px-1 rounded-full bg-[#8f7cf8] text-white text-[11px] font-semibold flex items-center justify-center">
+                            <span className="min-w-5 h-5 px-1 rounded-full chat-badge text-white text-[11px] font-semibold flex items-center justify-center">
                               {cantidadNoLeidos}
                             </span>
                           )}
@@ -819,11 +910,11 @@ function Chat() {
                 })
               )
             ) : cargandoGrupos ? (
-              <div className="h-full flex items-center justify-center text-[#9ea3bf] text-sm">
+              <div className="h-full flex items-center justify-center chat-muted text-sm">
                 Cargando grupos...
               </div>
             ) : gruposFiltrados.length === 0 ? (
-              <div className="h-full flex items-center justify-center text-[#9ea3bf] text-sm text-center px-4">
+              <div className="h-full flex items-center justify-center chat-muted text-sm text-center px-4">
                 No hay grupos disponibles
               </div>
             ) : (
@@ -836,30 +927,28 @@ function Chat() {
                     key={grupo.id}
                     onClick={() => seleccionarGrupo(grupo)}
                     className={`w-full text-left rounded-2xl px-4 py-3 transition border ${
-                      seleccionado
-                        ? "bg-[#f3efff] border-[#dcd2ff]"
-                        : "bg-white border-transparent hover:bg-[#faf8ff]"
+                      seleccionado ? "chat-item-selected" : "chat-item"
                     }`}
                     type="button"
                   >
                     <div className="flex items-center justify-between gap-3">
                       <div className="flex items-center gap-3 min-w-0">
-                        <div className="w-10 h-10 rounded-full bg-[#f3efff] flex items-center justify-center shrink-0">
-                          <Users size={18} className="text-[#7f78ff]" />
+                        <div className="w-10 h-10 rounded-full chat-group-icon flex items-center justify-center shrink-0">
+                          <Users size={18} className="chat-primary-icon" />
                         </div>
 
                         <div className="min-w-0">
-                          <div className="font-semibold text-[#20224a] truncate">
+                          <div className="font-semibold truncate chat-text">
                             {grupo.nombre}
                           </div>
-                          <div className="text-xs text-[#8f95b2] mt-1 truncate">
+                          <div className="text-xs mt-1 truncate chat-muted">
                             {grupo.miembros?.length || 0} integrantes
                           </div>
                         </div>
                       </div>
 
                       {cantidadNoLeidosGrupo > 0 && (
-                        <span className="min-w-5 h-5 px-1 rounded-full bg-[#8f7cf8] text-white text-[11px] font-semibold flex items-center justify-center shrink-0">
+                        <span className="min-w-5 h-5 px-1 rounded-full chat-badge text-white text-[11px] font-semibold flex items-center justify-center shrink-0">
                           {cantidadNoLeidosGrupo}
                         </span>
                       )}
@@ -871,25 +960,29 @@ function Chat() {
           </div>
         </section>
 
-        <section className="bg-white rounded-[28px] border border-[#ece7fb] flex flex-col overflow-hidden">
+        <section className="chat-card rounded-[28px] border flex flex-col overflow-hidden">
           {contactoSeleccionado ? (
             <>
-              <div className="px-6 py-5 border-b border-[#f0ebfc]">
-                <div className="font-bold text-[20px] text-[#20224a]">
+              <div className="px-6 py-5 border-b chat-border">
+                <div className="font-bold text-[20px] chat-text">
                   {contactoSeleccionado.nombreUsuario}
                 </div>
-                <div className="text-sm text-[#8f95b2] mt-1">
+                <div className="text-sm mt-1 chat-muted">
                   {contactoSeleccionado.rol}
                 </div>
               </div>
 
-              <div ref={mensajesRef} className="flex-1 overflow-y-auto px-6 py-5 bg-[#fcfbff]">
+              <div
+                ref={mensajesRef}
+                onScroll={actualizarEstadoScroll}
+                className="flex-1 overflow-y-auto px-6 py-5 chat-panel"
+              >
                 {cargandoMensajes ? (
-                  <div className="h-full flex items-center justify-center text-[#9ea3bf] text-sm">
+                  <div className="h-full flex items-center justify-center chat-muted text-sm">
                     Cargando conversación...
                   </div>
                 ) : mensajes.length === 0 ? (
-                  <div className="h-full flex items-center justify-center text-[#9ea3bf] text-sm text-center">
+                  <div className="h-full flex items-center justify-center chat-muted text-sm text-center">
                     No hay mensajes aún. Inicia la conversación.
                   </div>
                 ) : (
@@ -899,17 +992,11 @@ function Chat() {
 
                       return (
                         <div key={item.id} className={`flex ${esMio ? "justify-end" : "justify-start"}`}>
-                          <div
-                            className={`max-w-[70%] rounded-2xl px-4 py-3 ${
-                              esMio
-                                ? "bg-[#8f7cf8] text-white"
-                                : "bg-white border border-[#ece7fb] text-[#20224a]"
-                            }`}
-                          >
+                          <div className={`max-w-[70%] rounded-2xl px-4 py-3 ${esMio ? "chat-bubble-mine" : "chat-bubble-other"}`}>
                             <div className="text-sm whitespace-pre-wrap break-words">
                               {item.mensaje}
                             </div>
-                            <div className={`text-[11px] mt-2 ${esMio ? "text-[#e9e5ff]" : "text-[#9ea3bf]"}`}>
+                            <div className={`text-[11px] mt-2 ${esMio ? "text-white/75" : "chat-muted"}`}>
                               {formatearHora(item.fecha)}
                             </div>
                           </div>
@@ -920,20 +1007,20 @@ function Chat() {
                 )}
               </div>
 
-              <form onSubmit={handleSubmit} className="px-6 py-4 border-t border-[#f0ebfc] bg-white">
+              <form onSubmit={handleSubmit} className="px-6 py-4 border-t chat-border chat-card">
                 <div className="max-w-[920px] mx-auto flex items-center gap-3">
                   <input
                     type="text"
                     value={texto}
                     onChange={(e) => setTexto(e.target.value)}
                     placeholder="Escribe un mensaje..."
-                    className="flex-1 h-12 rounded-2xl border border-[#e5defa] px-4 text-sm text-[#20224a] outline-none"
+                    className="chat-input flex-1 h-12 rounded-2xl border px-4 text-sm outline-none"
                   />
 
                   <button
                     type="submit"
                     disabled={enviando || !texto.trim()}
-                    className="h-12 px-5 rounded-2xl bg-[#8f7cf8] text-white font-semibold flex items-center gap-2 hover:bg-[#7e69f6] transition disabled:opacity-60"
+                    className="h-12 px-5 rounded-2xl chat-send-button font-semibold flex items-center gap-2 transition disabled:opacity-60"
                   >
                     <Send size={16} />
                     Enviar
@@ -943,22 +1030,26 @@ function Chat() {
             </>
           ) : grupoSeleccionado ? (
             <>
-              <div className="px-6 py-5 border-b border-[#f0ebfc]">
-                <div className="font-bold text-[20px] text-[#20224a]">
+              <div className="px-6 py-5 border-b chat-border">
+                <div className="font-bold text-[20px] chat-text">
                   {grupoSeleccionado.nombre}
                 </div>
-                <div className="text-sm text-[#8f95b2] mt-1">
+                <div className="text-sm mt-1 chat-muted">
                   {grupoSeleccionado.descripcion || "Grupo interno de trabajo"}
                 </div>
               </div>
 
-              <div ref={mensajesRef} className="flex-1 overflow-y-auto px-6 py-5 bg-[#fcfbff]">
+              <div
+                ref={mensajesRef}
+                onScroll={actualizarEstadoScroll}
+                className="flex-1 overflow-y-auto px-6 py-5 chat-panel"
+              >
                 {cargandoMensajes ? (
-                  <div className="h-full flex items-center justify-center text-[#9ea3bf] text-sm">
+                  <div className="h-full flex items-center justify-center chat-muted text-sm">
                     Cargando mensajes del grupo...
                   </div>
                 ) : mensajesGrupo.length === 0 ? (
-                  <div className="h-full flex items-center justify-center text-[#9ea3bf] text-sm text-center">
+                  <div className="h-full flex items-center justify-center chat-muted text-sm text-center">
                     No hay mensajes en este grupo. Inicia la conversación.
                   </div>
                 ) : (
@@ -968,22 +1059,16 @@ function Chat() {
 
                       return (
                         <div key={item.id} className={`flex ${esMio ? "justify-end" : "justify-start"}`}>
-                          <div
-                            className={`max-w-[70%] rounded-2xl px-4 py-3 ${
-                              esMio
-                                ? "bg-[#8f7cf8] text-white"
-                                : "bg-white border border-[#ece7fb] text-[#20224a]"
-                            }`}
-                          >
+                          <div className={`max-w-[70%] rounded-2xl px-4 py-3 ${esMio ? "chat-bubble-mine" : "chat-bubble-other"}`}>
                             {!esMio && (
-                              <div className="text-[11px] font-semibold text-[#7f78ff] mb-1">
+                              <div className="text-[11px] font-semibold mb-1 chat-primary-text">
                                 {item.remitente}
                               </div>
                             )}
                             <div className="text-sm whitespace-pre-wrap break-words">
                               {item.mensaje}
                             </div>
-                            <div className={`text-[11px] mt-2 ${esMio ? "text-[#e9e5ff]" : "text-[#9ea3bf]"}`}>
+                            <div className={`text-[11px] mt-2 ${esMio ? "text-white/75" : "chat-muted"}`}>
                               {formatearHora(item.fecha)}
                             </div>
                           </div>
@@ -994,20 +1079,20 @@ function Chat() {
                 )}
               </div>
 
-              <form onSubmit={handleSubmit} className="px-6 py-4 border-t border-[#f0ebfc] bg-white">
+              <form onSubmit={handleSubmit} className="px-6 py-4 border-t chat-border chat-card">
                 <div className="max-w-[920px] mx-auto flex items-center gap-3">
                   <input
                     type="text"
                     value={texto}
                     onChange={(e) => setTexto(e.target.value)}
                     placeholder="Escribe un mensaje al grupo..."
-                    className="flex-1 h-12 rounded-2xl border border-[#e5defa] px-4 text-sm text-[#20224a] outline-none"
+                    className="chat-input flex-1 h-12 rounded-2xl border px-4 text-sm outline-none"
                   />
 
                   <button
                     type="submit"
                     disabled={enviando || !texto.trim()}
-                    className="h-12 px-5 rounded-2xl bg-[#8f7cf8] text-white font-semibold flex items-center gap-2 hover:bg-[#7e69f6] transition disabled:opacity-60"
+                    className="h-12 px-5 rounded-2xl chat-send-button font-semibold flex items-center gap-2 transition disabled:opacity-60"
                   >
                     <Send size={16} />
                     Enviar
@@ -1016,24 +1101,24 @@ function Chat() {
               </form>
             </>
           ) : (
-            <div className="h-full bg-white"></div>
+            <div className="h-full chat-card"></div>
           )}
         </section>
       </div>
 
       {modalGrupoAbierto && (
         <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center px-4">
-          <div className="w-full max-w-[520px] bg-white rounded-[28px] shadow-xl border border-[#ece7fb] overflow-hidden">
-            <div className="px-6 py-5 border-b border-[#f0ebfc]">
-              <h2 className="text-[22px] font-bold text-[#20224a]">Nuevo grupo</h2>
-              <p className="text-sm text-[#8f95b2] mt-1">
+          <div className="w-full max-w-[520px] chat-card rounded-[28px] shadow-xl border overflow-hidden">
+            <div className="px-6 py-5 border-b chat-border">
+              <h2 className="text-[22px] font-bold chat-text">Nuevo grupo</h2>
+              <p className="text-sm mt-1 chat-muted">
                 Crea un grupo interno para organizar conversaciones por equipo.
               </p>
             </div>
 
             <div className="p-6 space-y-4">
               <div>
-                <label className="block text-sm font-semibold text-[#20224a] mb-2">
+                <label className="block text-sm font-semibold mb-2 chat-text">
                   Nombre del grupo
                 </label>
                 <input
@@ -1045,13 +1130,13 @@ function Chat() {
                       nombre: e.target.value,
                     }))
                   }
-                  className="w-full h-11 rounded-2xl bg-[#f8f6ff] border border-[#ece7fb] px-4 text-sm text-[#20224a] outline-none"
+                  className="chat-input w-full h-11 rounded-2xl border px-4 text-sm outline-none"
                   placeholder="Ej: Administradores"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-[#20224a] mb-2">
+                <label className="block text-sm font-semibold mb-2 chat-text">
                   Descripción
                 </label>
                 <textarea
@@ -1062,19 +1147,19 @@ function Chat() {
                       descripcion: e.target.value,
                     }))
                   }
-                  className="w-full min-h-[90px] rounded-2xl bg-[#f8f6ff] border border-[#ece7fb] px-4 py-3 text-sm text-[#20224a] outline-none resize-none"
+                  className="chat-input w-full min-h-[90px] rounded-2xl border px-4 py-3 text-sm outline-none resize-none"
                   placeholder="Descripción opcional del grupo"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-[#20224a] mb-2">
+                <label className="block text-sm font-semibold mb-2 chat-text">
                   Integrantes
                 </label>
 
-                <div className="max-h-[210px] overflow-y-auto rounded-2xl border border-[#ece7fb] bg-[#fcfbff] p-2 space-y-1">
+                <div className="max-h-[210px] overflow-y-auto rounded-2xl border chat-border chat-panel p-2 space-y-1">
                   {contactos.length === 0 ? (
-                    <div className="text-sm text-[#9ea3bf] text-center py-4">
+                    <div className="text-sm chat-muted text-center py-4">
                       No hay usuarios disponibles
                     </div>
                   ) : (
@@ -1086,7 +1171,7 @@ function Chat() {
                         return (
                           <label
                             key={contacto.id}
-                            className="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-white cursor-pointer"
+                            className="flex items-center gap-3 px-3 py-2 rounded-xl cursor-pointer chat-hover"
                           >
                             <input
                               type="checkbox"
@@ -1095,10 +1180,10 @@ function Chat() {
                               className="w-4 h-4 accent-[#8f7cf8]"
                             />
                             <div className="min-w-0">
-                              <div className="text-sm font-semibold text-[#20224a] truncate">
+                              <div className="text-sm font-semibold truncate chat-text">
                                 {contacto.nombreUsuario}
                               </div>
-                              <div className="text-xs text-[#8f95b2]">
+                              <div className="text-xs chat-muted">
                                 {contacto.rol}
                               </div>
                             </div>
@@ -1110,11 +1195,11 @@ function Chat() {
               </div>
             </div>
 
-            <div className="px-6 py-4 border-t border-[#f0ebfc] flex justify-end gap-3">
+            <div className="px-6 py-4 border-t chat-border flex justify-end gap-3">
               <button
                 type="button"
                 onClick={cerrarModalGrupo}
-                className="h-11 px-5 rounded-2xl border border-[#e5defa] text-[#20224a] font-semibold hover:bg-[#f8f6ff] transition"
+                className="h-11 px-5 rounded-2xl border chat-border chat-cancel-button font-semibold transition"
               >
                 Cancelar
               </button>
@@ -1123,7 +1208,7 @@ function Chat() {
                 type="button"
                 onClick={guardarGrupo}
                 disabled={creandoGrupo}
-                className="h-11 px-5 rounded-2xl bg-[#8f7cf8] text-white font-semibold hover:bg-[#7e69f6] transition disabled:opacity-60"
+                className="h-11 px-5 rounded-2xl chat-send-button font-semibold transition disabled:opacity-60"
               >
                 {creandoGrupo ? "Creando..." : "Crear grupo"}
               </button>
@@ -1133,10 +1218,145 @@ function Chat() {
       )}
 
       {mensajeError && (
-        <div className="fixed right-6 bottom-6 z-[60] rounded-2xl bg-[#20224a] text-white px-5 py-3 shadow-lg">
+        <div className="fixed right-6 bottom-6 z-[60] rounded-2xl px-5 py-3 shadow-lg chat-toast">
           {mensajeError}
         </div>
       )}
+
+      <style>{`
+        .chat-theme {
+          background: var(--chat-page);
+          transition: background 0.25s ease;
+        }
+
+        .chat-card {
+          background: var(--chat-card);
+          border-color: var(--chat-border);
+          color: var(--chat-text);
+        }
+
+        .chat-panel {
+          background: var(--chat-panel);
+        }
+
+        .chat-title,
+        .chat-text {
+          color: var(--chat-text);
+        }
+
+        .chat-muted {
+          color: var(--chat-muted);
+        }
+
+        .chat-border {
+          border-color: var(--chat-border);
+        }
+
+        .chat-input {
+          background: var(--chat-input);
+          border-color: var(--chat-border);
+          color: var(--chat-text);
+        }
+
+        .chat-input::placeholder {
+          color: var(--chat-muted);
+        }
+
+        .chat-input:focus {
+          border-color: var(--chat-primary);
+          box-shadow: 0 0 0 3px color-mix(in srgb, var(--chat-primary) 18%, transparent);
+        }
+
+        .chat-tab {
+          background: var(--chat-input);
+          color: var(--chat-primary);
+          border: 1px solid var(--chat-border);
+        }
+
+        .chat-tab-active {
+          background: var(--chat-primary);
+          color: white;
+          box-shadow: 0 8px 18px color-mix(in srgb, var(--chat-primary) 22%, transparent);
+        }
+
+        .chat-dark-button {
+          background: var(--chat-button-dark);
+          color: white;
+        }
+
+        .chat-dark-button:hover {
+          filter: brightness(1.08);
+        }
+
+        .chat-send-button {
+          background: var(--chat-primary);
+          color: white;
+        }
+
+        .chat-send-button:hover {
+          background: var(--chat-primary-hover);
+        }
+
+        .chat-cancel-button {
+          color: var(--chat-text);
+          background: transparent;
+        }
+
+        .chat-cancel-button:hover {
+          background: var(--chat-input);
+        }
+
+        .chat-item {
+          background: var(--chat-card);
+          border-color: transparent;
+        }
+
+        .chat-item:hover {
+          background: var(--chat-input);
+        }
+
+        .chat-item-selected {
+          background: var(--chat-selected);
+          border-color: var(--chat-selected-border);
+        }
+
+        .chat-badge {
+          background: var(--chat-primary);
+        }
+
+        .chat-primary-icon,
+        .chat-primary-text {
+          color: var(--chat-primary);
+        }
+
+        .chat-muted-icon {
+          color: var(--chat-muted);
+        }
+
+        .chat-group-icon {
+          background: var(--chat-selected);
+        }
+
+        .chat-bubble-mine {
+          background: var(--chat-mine);
+          color: white;
+        }
+
+        .chat-bubble-other {
+          background: var(--chat-other);
+          border: 1px solid var(--chat-other-border);
+          color: var(--chat-other-text);
+        }
+
+        .chat-toast {
+          background: var(--chat-button-dark);
+          color: white;
+        }
+
+        .chat-hover:hover {
+          background: var(--chat-input);
+        }
+      `}</style>
     </div>
   )
 }

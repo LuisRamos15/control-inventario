@@ -1,13 +1,11 @@
 import { useEffect, useMemo, useState } from "react"
-import {
-  BarChart3,
-  Printer,
-} from "lucide-react"
+import { BarChart3, Printer } from "lucide-react"
 import {
   descargarMovimientosPdf,
   getMovimientosReporte,
   getProductosReporte,
 } from "../api/reportes"
+import { useAppTheme } from "../theme/AppThemeContext"
 
 type PuntoGrafica = {
   fecha: string
@@ -22,6 +20,7 @@ function Reportes() {
   const [mensaje, setMensaje] = useState("")
 
   const token = localStorage.getItem("token") || ""
+  const { theme } = useAppTheme()
 
   const decodeJwt = (jwt: string) => {
     try {
@@ -114,7 +113,7 @@ function Reportes() {
 
   const productosBajos = productos.filter((p) => {
     const stock = Number(p?.stock ?? 0)
-    const minimo = Number(p?.minimo ?? 0)
+    const minimo = Number(p?.minimo ?? p?.stockMinimo ?? 0)
     return stock <= minimo
   }).length
 
@@ -189,37 +188,53 @@ function Reportes() {
     }
   }
 
+  const variables = {
+    "--rep-page": theme.page,
+    "--rep-card": theme.card,
+    "--rep-panel": theme.panel,
+    "--rep-input": theme.input,
+    "--rep-text": theme.text,
+    "--rep-muted": theme.muted,
+    "--rep-border": theme.border,
+    "--rep-selected": theme.selected,
+    "--rep-primary": theme.primary,
+    "--rep-primary-hover": theme.primaryHover,
+    "--rep-button-dark": theme.buttonDark,
+  } as React.CSSProperties
+
   if (!puedeVerReportes) {
     return (
-      <div className="p-6 bg-[#f5f2ff] min-h-screen flex items-center justify-center">
-        <div className="bg-white rounded-2xl border border-[#ece7fb] px-8 py-10 text-center">
-          <h2 className="text-2xl font-bold text-[#20224a] mb-2">Acceso restringido</h2>
-          <p className="text-[#8f95b2]">
+      <div className="reportes-page p-6 min-h-screen flex items-center justify-center" style={variables}>
+        <div className="reportes-card rounded-2xl border px-8 py-10 text-center">
+          <h2 className="text-2xl font-bold reportes-title mb-2">Acceso restringido</h2>
+          <p className="reportes-muted">
             No tienes permisos para acceder al módulo de reportes.
           </p>
         </div>
+
+        <style>{reportesStyles}</style>
       </div>
     )
   }
 
   return (
-    <div className="p-6 bg-[#f5f2ff] min-h-screen">
+    <div className="reportes-page p-6 min-h-screen" style={variables}>
       <div className="flex items-start justify-between gap-4 mb-6">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <BarChart3 size={18} className="text-[#7f78ff]" />
-            <h1 className="text-[28px] font-bold text-[#20224a] leading-none">
+            <BarChart3 size={18} className="reportes-primary-icon" />
+            <h1 className="text-[28px] font-bold reportes-title leading-none">
               Reportes y Estadísticas
             </h1>
           </div>
-          <p className="text-[#8f95b2] text-sm">
+          <p className="reportes-muted text-sm">
             Resumen general del inventario
           </p>
         </div>
 
         <button
           onClick={handleImprimir}
-          className="h-10 px-4 rounded-xl bg-[#8f7cf8] text-white text-sm font-semibold flex items-center gap-2 hover:bg-[#7e69f6] transition"
+          className="h-10 px-4 rounded-xl reportes-primary-button text-white text-sm font-semibold flex items-center gap-2 transition"
           type="button"
         >
           <Printer size={16} />
@@ -232,46 +247,46 @@ function Reportes() {
           titulo="Total Productos"
           valor={String(totalProductos)}
           descripcion="Activos en stock"
-          color="text-[#20224a]"
+          variante="normal"
         />
         <ResumenCard
           titulo="Valor Total"
           valor={formatearMoneda(valorTotal)}
           descripcion="Estimado"
-          color="text-[#7f78ff]"
+          variante="primary"
         />
         <ResumenCard
           titulo="Productos Bajos"
           valor={String(productosBajos)}
           descripcion="Necesitan reposición"
-          color="text-[#e35d5d]"
+          variante="danger"
         />
         <ResumenCard
           titulo="Categorías"
           valor={String(categoriasActivas)}
           descripcion="Activas"
-          color="text-[#20224a]"
+          variante="normal"
         />
       </div>
 
-      <section className="bg-[#f3efff] rounded-[28px] border border-[#ece7fb] p-5">
+      <section className="reportes-panel rounded-[28px] border p-5">
         <div className="flex items-center gap-2 mb-4">
-          <BarChart3 size={16} className="text-[#7f78ff]" />
-          <h2 className="text-[15px] font-bold text-[#20224a]">
+          <BarChart3 size={16} className="reportes-primary-icon" />
+          <h2 className="text-[15px] font-bold reportes-title">
             Gráfico de Tendencias — Movimientos
           </h2>
         </div>
 
         {cargando ? (
-          <div className="bg-white rounded-[22px] border border-[#ece7fb] px-6 py-16 text-center text-[#9ea3bf]">
+          <div className="reportes-card rounded-[22px] border px-6 py-16 text-center reportes-muted">
             Cargando reportes...
           </div>
         ) : puntosGrafica.length === 0 ? (
-          <div className="bg-white rounded-[22px] border border-[#ece7fb] px-6 py-16 text-center text-[#9ea3bf]">
+          <div className="reportes-card rounded-[22px] border px-6 py-16 text-center reportes-muted">
             No hay movimientos suficientes para mostrar la gráfica.
           </div>
         ) : (
-          <div className="bg-white rounded-[22px] border border-[#ece7fb] p-5">
+          <div className="reportes-card rounded-[22px] border p-5">
             <div className="h-[280px] flex items-end gap-4">
               {puntosGrafica.map((item) => {
                 const alturaEntradas = Math.max((item.entradas / maxValorGrafica) * 180, item.entradas > 0 ? 10 : 0)
@@ -285,7 +300,7 @@ function Reportes() {
                     <div className="w-full flex items-end justify-center gap-2 h-[210px]">
                       <div className="flex flex-col items-center justify-end">
                         <div
-                          className="w-5 rounded-t-md bg-[#8f7cf8]"
+                          className="w-5 rounded-t-md reportes-bar-primary"
                           style={{ height: `${alturaEntradas}px` }}
                           title={`Entradas: ${item.entradas}`}
                         />
@@ -300,18 +315,18 @@ function Reportes() {
                       </div>
                     </div>
 
-                    <div className="text-[11px] text-[#9ea3bf] mt-4">{item.fecha}</div>
+                    <div className="text-[11px] reportes-muted mt-4">{item.fecha}</div>
                   </div>
                 )
               })}
             </div>
 
             <div className="flex items-center gap-5 mt-4">
-              <div className="flex items-center gap-2 text-xs text-[#6c7393]">
-                <span className="w-2 h-2 rounded-full bg-[#8f7cf8]"></span>
+              <div className="flex items-center gap-2 text-xs reportes-muted">
+                <span className="w-2 h-2 rounded-full reportes-dot-primary"></span>
                 Entradas
               </div>
-              <div className="flex items-center gap-2 text-xs text-[#6c7393]">
+              <div className="flex items-center gap-2 text-xs reportes-muted">
                 <span className="w-2 h-2 rounded-full bg-[#f2a15e]"></span>
                 Salidas
               </div>
@@ -321,10 +336,12 @@ function Reportes() {
       </section>
 
       {mensaje && (
-        <div className="fixed right-6 bottom-6 z-[60] rounded-2xl bg-[#20224a] text-white px-5 py-3 shadow-lg">
+        <div className="fixed right-6 bottom-6 z-[60] rounded-2xl reportes-toast px-5 py-3 shadow-lg">
           {mensaje}
         </div>
       )}
+
+      <style>{reportesStyles}</style>
     </div>
   )
 }
@@ -333,18 +350,28 @@ function ResumenCard({
   titulo,
   valor,
   descripcion,
-  color,
+  variante,
 }: {
   titulo: string
   valor: string
   descripcion: string
-  color: string
+  variante: "normal" | "primary" | "danger"
 }) {
   return (
-    <div className="bg-white rounded-[18px] border border-[#ece7fb] px-5 py-4">
-      <div className="text-[12px] text-[#9ea3bf] mb-2">{titulo}</div>
-      <div className={`text-[34px] font-bold leading-none mb-2 ${color}`}>{valor}</div>
-      <div className="text-[12px] text-[#b0b5cc]">{descripcion}</div>
+    <div className="reportes-card rounded-[18px] border px-5 py-4">
+      <div className="text-[12px] reportes-muted mb-2">{titulo}</div>
+      <div
+        className={`text-[34px] font-bold leading-none mb-2 ${
+          variante === "primary"
+            ? "reportes-value-primary"
+            : variante === "danger"
+            ? "reportes-value-danger"
+            : "reportes-title"
+        }`}
+      >
+        {valor}
+      </div>
+      <div className="text-[12px] reportes-muted">{descripcion}</div>
     </div>
   )
 }
@@ -356,5 +383,58 @@ function formatearMoneda(valor: number) {
     maximumFractionDigits: 0,
   }).format(valor || 0)
 }
+
+const reportesStyles = `
+  .reportes-page {
+    background: var(--rep-page);
+    color: var(--rep-text);
+  }
+
+  .reportes-title {
+    color: var(--rep-text);
+  }
+
+  .reportes-muted {
+    color: var(--rep-muted);
+  }
+
+  .reportes-primary-icon,
+  .reportes-value-primary {
+    color: var(--rep-primary);
+  }
+
+  .reportes-value-danger {
+    color: #e35d5d;
+  }
+
+  .reportes-card {
+    background: var(--rep-card);
+    border-color: var(--rep-border);
+    color: var(--rep-text);
+  }
+
+  .reportes-panel {
+    background: var(--rep-panel);
+    border-color: var(--rep-border);
+  }
+
+  .reportes-primary-button {
+    background: var(--rep-primary);
+  }
+
+  .reportes-primary-button:hover {
+    background: var(--rep-primary-hover);
+  }
+
+  .reportes-bar-primary,
+  .reportes-dot-primary {
+    background: var(--rep-primary);
+  }
+
+  .reportes-toast {
+    background: var(--rep-button-dark);
+    color: white;
+  }
+`
 
 export default Reportes

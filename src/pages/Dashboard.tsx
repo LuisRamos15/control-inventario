@@ -16,6 +16,7 @@ import {
 } from "../api/dashboard"
 import { getProductos } from "../api/productos"
 import { connectSocket, disconnectSocket } from "../services/socket"
+import { useAppTheme } from "../theme/AppThemeContext"
 
 type MovimientoDia = {
   label: string
@@ -39,6 +40,7 @@ function Dashboard() {
 
   const navigate = useNavigate()
   const token = localStorage.getItem("token") || ""
+  const { theme } = useAppTheme()
 
   const decodeJwt = (jwt: string) => {
     try {
@@ -95,35 +97,11 @@ function Dashboard() {
         getAlertasDashboard(),
       ])
 
-      if (r.status === "fulfilled") {
-        setResumen(r.value || null)
-      } else {
-        setResumen(null)
-      }
-
-      if (m.status === "fulfilled") {
-        setMovimientos(Array.isArray(m.value) ? m.value : [])
-      } else {
-        setMovimientos([])
-      }
-
-      if (top.status === "fulfilled") {
-        setTopProductos(Array.isArray(top.value) ? top.value : [])
-      } else {
-        setTopProductos([])
-      }
-
-      if (p.status === "fulfilled") {
-        setProductos(Array.isArray(p.value) ? p.value : [])
-      } else {
-        setProductos([])
-      }
-
-      if (a.status === "fulfilled") {
-        setAlertas(Array.isArray(a.value) ? a.value : [])
-      } else {
-        setAlertas([])
-      }
+      setResumen(r.status === "fulfilled" ? r.value || null : null)
+      setMovimientos(m.status === "fulfilled" && Array.isArray(m.value) ? m.value : [])
+      setTopProductos(top.status === "fulfilled" && Array.isArray(top.value) ? top.value : [])
+      setProductos(p.status === "fulfilled" && Array.isArray(p.value) ? p.value : [])
+      setAlertas(a.status === "fulfilled" && Array.isArray(a.value) ? a.value : [])
     } catch (e) {
       console.error(e)
       setError("No se pudo cargar el dashboard")
@@ -135,8 +113,7 @@ function Dashboard() {
   useEffect(() => {
     cargarDashboard()
 
-    connectSocket((data) => {
-      console.log("📡 Evento en Dashboard:", data)
+    connectSocket(() => {
       cargarDashboard()
     })
 
@@ -200,7 +177,7 @@ function Dashboard() {
 
     if (desdeProductos.length > 0) return desdeProductos
 
-    const desdeTopProductos = topProductos
+    return topProductos
       .map((item: any) => ({
         nombre:
           item?.categoria ??
@@ -212,8 +189,6 @@ function Dashboard() {
       }))
       .filter((item) => item.total > 0)
       .slice(0, 4)
-
-    return desdeTopProductos
   }, [productos, topProductos])
 
   const productosCriticos = useMemo(() => {
@@ -254,7 +229,7 @@ function Dashboard() {
 
   if (cargando) {
     return (
-      <div className="p-6 bg-[#f5f2ff] min-h-screen flex items-center justify-center text-[#20224a]">
+      <div className="dashboard-page min-h-screen flex items-center justify-center">
         Cargando dashboard...
       </div>
     )
@@ -262,23 +237,39 @@ function Dashboard() {
 
   if (error) {
     return (
-      <div className="p-6 bg-[#f5f2ff] min-h-screen flex items-center justify-center text-red-500">
+      <div className="dashboard-page min-h-screen flex items-center justify-center text-red-500">
         {error}
       </div>
     )
   }
 
   return (
-    <div className="p-6 bg-[#f5f2ff] min-h-screen">
+    <div
+      className="dashboard-page p-6 min-h-screen"
+      style={
+        {
+          "--dash-page": theme.page,
+          "--dash-card": theme.card,
+          "--dash-panel": theme.panel,
+          "--dash-input": theme.input,
+          "--dash-text": theme.text,
+          "--dash-muted": theme.muted,
+          "--dash-border": theme.border,
+          "--dash-selected": theme.selected,
+          "--dash-primary": theme.primary,
+          "--dash-primary-hover": theme.primaryHover,
+        } as React.CSSProperties
+      }
+    >
       <div className="flex justify-between mb-6">
-        <h1 className="text-3xl font-bold text-[#20224a]">
+        <h1 className="text-3xl font-bold dashboard-title">
           Panel de Control
         </h1>
 
         {puedeVerAlertas && (
           <button
             onClick={() => navigate("/alertas")}
-            className="w-10 h-10 rounded-2xl bg-[#fff8e6] flex items-center justify-center"
+            className="w-10 h-10 rounded-2xl dashboard-alert-button flex items-center justify-center"
             type="button"
           >
             <Bell size={16} />
@@ -287,51 +278,35 @@ function Dashboard() {
       </div>
 
       <div className="grid grid-cols-4 gap-4 mb-6">
-        <Card
-          icon={<Box />}
-          title="Total de Productos"
-          value={totalProductos}
-        />
-        <Card
-          icon={<Zap />}
-          title="Stock Crítico"
-          value={stockCritico}
-        />
-        <Card
-          icon={<ChartColumnIncreasing />}
-          title="Movimientos Hoy"
-          value={movimientosHoy}
-        />
-        <Card
-          icon={<Siren />}
-          title="Alertas Activas"
-          value={alertasActivas}
-        />
+        <Card icon={<Box />} title="Total de Productos" value={totalProductos} />
+        <Card icon={<Zap />} title="Stock Crítico" value={stockCritico} />
+        <Card icon={<ChartColumnIncreasing />} title="Movimientos Hoy" value={movimientosHoy} />
+        <Card icon={<Siren />} title="Alertas Activas" value={alertasActivas} />
       </div>
 
       <div className="grid grid-cols-2 gap-4 mb-6">
-        <div className="bg-white rounded-2xl p-6 border border-[#ece7fb]">
-          <h2 className="font-bold mb-4 text-[#20224a]">Movimientos por Tipo</h2>
+        <div className="dashboard-card rounded-2xl p-6 border">
+          <h2 className="font-bold mb-4 dashboard-title">Movimientos por Tipo</h2>
           <div className="h-56">
             <MovimientosChart data={movimientosNormalizados} />
           </div>
         </div>
 
-        <div className="bg-white rounded-2xl p-6 border border-[#ece7fb]">
-          <h2 className="font-bold mb-4 text-[#20224a]">Top Categorías</h2>
+        <div className="dashboard-card rounded-2xl p-6 border">
+          <h2 className="font-bold mb-4 dashboard-title">Top Categorías</h2>
           <div className="h-56">
             <CategoriasChart data={categoriasTop} />
           </div>
         </div>
       </div>
 
-      <div className="bg-white rounded-2xl p-6 border border-[#ece7fb]">
+      <div className="dashboard-card rounded-2xl p-6 border">
         <div className="flex justify-between mb-4">
-          <h2 className="font-bold text-[#20224a]">Productos con Stock Crítico</h2>
+          <h2 className="font-bold dashboard-title">Productos con Stock Crítico</h2>
 
           <button
             onClick={() => navigate("/inventario")}
-            className="text-purple-600"
+            className="dashboard-link"
             type="button"
           >
             Ver inventario →
@@ -339,48 +314,93 @@ function Dashboard() {
         </div>
 
         {productosCriticos.length === 0 ? (
-          <p className="text-gray-400">No hay productos críticos</p>
+          <p className="dashboard-muted">No hay productos críticos</p>
         ) : (
           <div className="space-y-3">
             {productosCriticos.map((producto: any, index: number) => (
               <div
                 key={producto.id || index}
-                className="flex items-center justify-between rounded-xl border border-[#f1edf9] px-4 py-3"
+                className="dashboard-list-item flex items-center justify-between rounded-xl border px-4 py-3"
               >
                 <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-[#f5f2ff] flex items-center justify-center">
-                    <Package size={16} className="text-[#7f78ff]" />
+                  <div className="w-10 h-10 rounded-xl dashboard-icon-box flex items-center justify-center">
+                    <Package size={16} />
                   </div>
 
                   <div>
-                    <p className="font-medium text-[#20224a]">
+                    <p className="font-medium dashboard-title">
                       {producto.nombre}
                     </p>
-                    <p className="text-sm text-[#9ea3bf]">
+                    <p className="text-sm dashboard-muted">
                       {producto.sku || "Sin SKU"}
                     </p>
                   </div>
                 </div>
 
-                <div className="text-sm text-[#20224a]">
+                <div className="text-sm dashboard-title">
                   Stock: <span className="font-semibold">{producto.stock}</span> /{" "}
-                  <span className="text-[#9ea3bf]">{producto.stockMaximo}</span>
+                  <span className="dashboard-muted">{producto.stockMaximo}</span>
                 </div>
               </div>
             ))}
           </div>
         )}
       </div>
+
+      <style>{`
+        .dashboard-page {
+          background: var(--dash-page);
+          color: var(--dash-text);
+        }
+
+        .dashboard-title {
+          color: var(--dash-text);
+        }
+
+        .dashboard-muted {
+          color: var(--dash-muted);
+        }
+
+        .dashboard-card {
+          background: var(--dash-card);
+          border-color: var(--dash-border);
+          color: var(--dash-text);
+        }
+
+        .dashboard-list-item {
+          border-color: var(--dash-border);
+          background: var(--dash-card);
+        }
+
+        .dashboard-icon-box {
+          background: var(--dash-selected);
+          color: var(--dash-primary);
+        }
+
+        .dashboard-link {
+          color: var(--dash-primary);
+          font-weight: 500;
+        }
+
+        .dashboard-link:hover {
+          color: var(--dash-primary-hover);
+        }
+
+        .dashboard-alert-button {
+          background: #fff8e6;
+          color: #20224a;
+        }
+      `}</style>
     </div>
   )
 }
 
 function Card({ icon, title, value }: any) {
   return (
-    <div className="bg-white p-4 rounded-2xl border border-[#ece7fb]">
-      <div className="mb-2 text-[#20224a]">{icon}</div>
-      <h3 className="text-xl font-bold text-[#20224a]">{value}</h3>
-      <p className="text-gray-500">{title}</p>
+    <div className="dashboard-card p-4 rounded-2xl border">
+      <div className="mb-2 dashboard-title">{icon}</div>
+      <h3 className="text-xl font-bold dashboard-title">{value}</h3>
+      <p className="dashboard-muted">{title}</p>
     </div>
   )
 }
@@ -437,7 +457,7 @@ function MovimientosChart({ data }: { data: MovimientoDia[] }) {
               y1={y}
               x2={width - padding}
               y2={y}
-              stroke="#f1eefc"
+              stroke="var(--dash-border)"
               strokeWidth="1"
             />
           )
@@ -445,7 +465,7 @@ function MovimientosChart({ data }: { data: MovimientoDia[] }) {
 
         <polyline
           fill="none"
-          stroke="#8f7cf8"
+          stroke="var(--dash-primary)"
           strokeWidth="4"
           strokeLinecap="round"
           strokeLinejoin="round"
@@ -463,15 +483,15 @@ function MovimientosChart({ data }: { data: MovimientoDia[] }) {
 
         {datos.map((item, index) => (
           <g key={index}>
-            <circle cx={getX(index)} cy={getY(item.entradas)} r="4" fill="#8f7cf8" />
+            <circle cx={getX(index)} cy={getY(item.entradas)} r="4" fill="var(--dash-primary)" />
             <circle cx={getX(index)} cy={getY(item.salidas)} r="4" fill="#f4a261" />
           </g>
         ))}
       </svg>
 
-      <div className="flex items-center gap-6 mt-2 text-sm text-slate-500">
+      <div className="flex items-center gap-6 mt-2 text-sm dashboard-muted">
         <div className="flex items-center gap-2">
-          <span className="w-3 h-3 rounded-full bg-[#8f7cf8]"></span>
+          <span className="w-3 h-3 rounded-full dashboard-dot-primary"></span>
           Entradas
         </div>
         <div className="flex items-center gap-2">
@@ -481,7 +501,7 @@ function MovimientosChart({ data }: { data: MovimientoDia[] }) {
       </div>
 
       <div
-        className="grid text-xs text-slate-400 mt-2"
+        className="grid text-xs dashboard-muted mt-2"
         style={{ gridTemplateColumns: `repeat(${datos.length}, minmax(0, 1fr))` }}
       >
         {datos.map((item, index) => (
@@ -490,12 +510,18 @@ function MovimientosChart({ data }: { data: MovimientoDia[] }) {
           </div>
         ))}
       </div>
+
+      <style>{`
+        .dashboard-dot-primary {
+          background: var(--dash-primary);
+        }
+      `}</style>
     </div>
   )
 }
 
 function CategoriasChart({ data }: { data: CategoriaItem[] }) {
-  const colores = ["#8f7cf8", "#ff9b5e", "#40d3c2", "#f87171"]
+  const colores = ["var(--dash-primary)", "#ff9b5e", "#40d3c2", "#f87171"]
 
   const items =
     data.length > 0
@@ -516,7 +542,7 @@ function CategoriasChart({ data }: { data: CategoriaItem[] }) {
             cy="75"
             r={radius}
             fill="none"
-            stroke="#f2effc"
+            stroke="var(--dash-border)"
             strokeWidth="18"
           />
 
@@ -544,7 +570,7 @@ function CategoriasChart({ data }: { data: CategoriaItem[] }) {
         </svg>
 
         <div className="absolute inset-0 flex flex-col items-center justify-center">
-          <span className="text-[28px] font-bold text-[#20224a]">
+          <span className="text-[28px] font-bold dashboard-title">
             {total}
           </span>
         </div>
@@ -558,12 +584,12 @@ function CategoriasChart({ data }: { data: CategoriaItem[] }) {
                 className="w-3 h-3 rounded-full"
                 style={{ backgroundColor: colores[index % colores.length] }}
               ></span>
-              <span className="text-slate-600 font-medium">
+              <span className="dashboard-muted font-medium">
                 {item.nombre}
               </span>
             </div>
 
-            <span className="text-[#20224a] font-semibold">
+            <span className="dashboard-title font-semibold">
               {item.total}
             </span>
           </div>

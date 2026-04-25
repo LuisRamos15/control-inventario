@@ -10,6 +10,7 @@ import {
   Check,
 } from "lucide-react"
 import { useNavigate } from "react-router-dom"
+import { useAppTheme } from "../theme/AppThemeContext"
 
 function Movimientos() {
   const [movimientos, setMovimientos] = useState<any[]>([])
@@ -28,6 +29,7 @@ function Movimientos() {
   const API_MOVIMIENTOS = "http://localhost:8080/api/movimientos"
   const API_PRODUCTOS = "http://localhost:8080/api/productos"
   const navigate = useNavigate()
+  const { theme } = useAppTheme()
 
   const decodeJwt = (jwt: string) => {
     try {
@@ -327,16 +329,33 @@ function Movimientos() {
   }
 
   return (
-    <div>
+    <div
+      className="mov-page"
+      style={
+        {
+          "--mov-page": theme.page,
+          "--mov-card": theme.card,
+          "--mov-panel": theme.panel,
+          "--mov-input": theme.input,
+          "--mov-text": theme.text,
+          "--mov-muted": theme.muted,
+          "--mov-border": theme.border,
+          "--mov-selected": theme.selected,
+          "--mov-primary": theme.primary,
+          "--mov-primary-hover": theme.primaryHover,
+          "--mov-button-dark": theme.buttonDark,
+        } as React.CSSProperties
+      }
+    >
       <div className="flex items-center justify-between mb-5">
         <div>
           <div className="flex items-center gap-2 mb-1">
-            <ArrowUpRight size={18} className="text-[#7f78ff]" />
-            <h1 className="text-[32px] font-bold text-[#20224a] leading-none">
+            <ArrowUpRight size={18} className="mov-primary-icon" />
+            <h1 className="text-[32px] font-bold mov-title leading-none">
               Registro de Movimientos
             </h1>
           </div>
-          <p className="text-[#8f95b2] text-sm">
+          <p className="mov-muted text-sm">
             Historial de entradas y salidas de productos
           </p>
         </div>
@@ -345,22 +364,22 @@ function Movimientos() {
           <div className="relative">
             <Search
               size={16}
-              className="absolute left-4 top-1/2 -translate-y-1/2 text-[#9ea3bf]"
+              className="absolute left-4 top-1/2 -translate-y-1/2 mov-muted-icon"
             />
             <input
               type="text"
               placeholder="Buscar..."
-              className="w-[220px] h-11 rounded-2xl bg-[#f3efff] border border-[#ece7fb] pl-10 pr-4 text-sm text-[#20224a] outline-none"
+              className="mov-input w-[220px] h-11 rounded-2xl border pl-10 pr-4 text-sm outline-none"
             />
           </div>
 
           {puedeVerAlertas && (
             <button
               onClick={() => navigate("/alertas")}
-              className="w-11 h-11 rounded-2xl bg-[#fff8e6] border border-[#f2df9c] flex items-center justify-center relative"
+              className="w-11 h-11 rounded-2xl mov-alert-button flex items-center justify-center relative"
               type="button"
             >
-              <Bell className="text-[#d6a11a]" size={16} />
+              <Bell size={16} />
               <span className="absolute top-2 right-2 w-2 h-2 rounded-full bg-red-500"></span>
             </button>
           )}
@@ -368,7 +387,7 @@ function Movimientos() {
           {puedeRegistrarMovimiento && (
             <button
               onClick={abrirModal}
-              className="h-11 rounded-2xl bg-[#8f7cf8] text-white font-semibold px-5 flex items-center justify-center gap-2 hover:bg-[#7e69f6] transition"
+              className="h-11 rounded-2xl mov-primary-button text-white font-semibold px-5 flex items-center justify-center gap-2 transition"
               type="button"
             >
               <Plus size={16} />
@@ -378,7 +397,7 @@ function Movimientos() {
         </div>
       </div>
 
-      <section className="bg-[#f3efff] rounded-[28px] border border-[#ece7fb] p-6">
+      <section className="mov-panel rounded-[28px] border p-6">
         <div className="flex items-center gap-3 mb-6">
           <TabButton active={filtro === "todos"} onClick={() => setFiltro("todos")} label="Todos" />
           <TabButton active={filtro === "entradas"} onClick={() => setFiltro("entradas")} label="Entradas" />
@@ -387,11 +406,11 @@ function Movimientos() {
 
         <div className="space-y-3">
           {cargando ? (
-            <div className="px-6 py-12 text-center text-[#9ea3bf]">
+            <div className="px-6 py-12 text-center mov-muted">
               Cargando movimientos...
             </div>
           ) : movimientos.length === 0 ? (
-            <div className="px-6 py-12 text-center text-[#9ea3bf]">
+            <div className="px-6 py-12 text-center mov-muted">
               No hay movimientos para mostrar
             </div>
           ) : (
@@ -402,10 +421,10 @@ function Movimientos() {
               return (
                 <div
                   key={movimiento.id || index}
-                  className="bg-white rounded-[18px] border border-[#ece7fb] px-5 py-4 flex items-center justify-between"
+                  className="mov-card rounded-[18px] border px-5 py-4 flex items-center justify-between"
                 >
                   <div className="flex items-center gap-4 min-w-0">
-                    <div className="w-11 h-11 rounded-xl bg-[#f5f2ff] flex items-center justify-center">
+                    <div className="w-11 h-11 rounded-xl mov-icon-box flex items-center justify-center">
                       {esEntrada ? (
                         <ArrowDownLeft size={18} className="text-[#20a464]" />
                       ) : (
@@ -414,10 +433,10 @@ function Movimientos() {
                     </div>
 
                     <div className="min-w-0">
-                      <div className="font-semibold text-[#20224a] truncate">
+                      <div className="font-semibold mov-title truncate">
                         {movimiento.productoNombre || "Producto"}
                       </div>
-                      <div className="text-[#9ea3bf] text-sm truncate">
+                      <div className="mov-muted text-sm truncate">
                         {(movimiento.sku || "SINSKU") +
                           " · Usuario: " +
                           (movimiento.usuario || "sistema") +
@@ -446,7 +465,7 @@ function Movimientos() {
                       {movimiento.cantidad ?? 0}
                     </span>
 
-                    <span className="text-[#9ea3bf] text-sm min-w-[130px] text-right">
+                    <span className="mov-muted text-sm min-w-[130px] text-right">
                       {formatearFecha(movimiento.fecha)}
                     </span>
                   </div>
@@ -461,7 +480,7 @@ function Movimientos() {
             <button
               onClick={cargarMas}
               disabled={cargandoMas}
-              className="h-9 px-5 rounded-full bg-[#ece7fb] text-[#7f78ff] text-sm font-semibold hover:bg-[#e2dcfb] transition disabled:opacity-60"
+              className="h-9 px-5 rounded-full mov-load-button text-sm font-semibold transition disabled:opacity-60"
               type="button"
             >
               {cargandoMas ? "Cargando..." : "Cargar más registros"}
@@ -472,21 +491,21 @@ function Movimientos() {
 
       {modal && (
         <div className="fixed inset-0 z-50 bg-black/30 backdrop-blur-[2px] flex items-center justify-center p-4">
-          <div className="w-full max-w-[660px] rounded-[26px] bg-white shadow-[0_20px_60px_rgba(39,33,79,0.18)] border border-[#ece7fb] overflow-hidden">
+          <div className="w-full max-w-[660px] rounded-[26px] mov-modal shadow-[0_20px_60px_rgba(39,33,79,0.18)] border overflow-hidden">
             <div className="relative px-6 pt-5 pb-2">
               <button
                 onClick={cerrarModal}
-                className="absolute right-5 top-5 text-[#8f95b2] hover:text-[#20224a] transition"
+                className="absolute right-5 top-5 mov-muted hover:opacity-80 transition"
                 type="button"
               >
                 <X size={18} />
               </button>
 
               <div className="text-center">
-                <h2 className="text-[22px] font-bold text-[#20224a] leading-none">
+                <h2 className="text-[22px] font-bold mov-title leading-none">
                   Nuevo Movimiento
                 </h2>
-                <p className="text-[#8f95b2] text-sm mt-2">
+                <p className="mov-muted text-sm mt-2">
                   {esOperador
                     ? "Registra una salida de inventario"
                     : "Registra una entrada o salida de inventario"}
@@ -562,10 +581,10 @@ function Movimientos() {
                 )}
               </div>
 
-              <div className="border-t border-[#ece7fb] mt-5 pt-4 flex justify-center gap-3">
+              <div className="border-t mov-border mt-5 pt-4 flex justify-center gap-3">
                 <button
                   onClick={cerrarModal}
-                  className="h-10 px-6 rounded-xl border border-[#d9dce8] text-[#20224a] font-medium hover:bg-[#f8f8fc] transition"
+                  className="h-10 px-6 rounded-xl mov-cancel-button border font-medium transition"
                   type="button"
                 >
                   Cancelar
@@ -573,7 +592,7 @@ function Movimientos() {
 
                 <button
                   onClick={registrarMovimiento}
-                  className="h-10 px-6 rounded-xl bg-[#8f7cf8] text-white font-semibold hover:bg-[#7e69f6] transition"
+                  className="h-10 px-6 rounded-xl mov-primary-button text-white font-semibold transition"
                   type="button"
                 >
                   Guardar Movimiento
@@ -586,18 +605,18 @@ function Movimientos() {
 
       {modalExito && (
         <div className="fixed inset-0 z-[70] bg-black/30 backdrop-blur-[2px] flex items-center justify-center p-4">
-          <div className="w-full max-w-[360px] bg-white rounded-[14px] shadow-[0_20px_60px_rgba(39,33,79,0.18)] px-8 py-8 text-center">
+          <div className="w-full max-w-[360px] mov-modal rounded-[14px] shadow-[0_20px_60px_rgba(39,33,79,0.18)] px-8 py-8 text-center">
             <div className="flex justify-center mb-3">
               <div className="w-14 h-14 rounded-full flex items-center justify-center">
                 <Check size={46} className="text-green-600" strokeWidth={2.5} />
               </div>
             </div>
 
-            <h3 className="text-[28px] font-bold text-[#20224a] leading-none mb-4">
+            <h3 className="text-[28px] font-bold mov-title leading-none mb-4">
               ¡Éxito!
             </h3>
 
-            <p className="text-[#4b5563] text-[17px] mb-6">
+            <p className="mov-muted text-[17px] mb-6">
               Movimiento registrado exitosamente
             </p>
 
@@ -613,31 +632,118 @@ function Movimientos() {
       )}
 
       {mensaje && (
-        <div className="fixed right-6 bottom-6 z-[60] rounded-2xl bg-[#20224a] text-white px-5 py-3 shadow-lg">
+        <div className="fixed right-6 bottom-6 z-[60] rounded-2xl mov-toast px-5 py-3 shadow-lg">
           {mensaje}
         </div>
       )}
 
       <style>{`
+        .mov-page {
+          background: var(--mov-page);
+          color: var(--mov-text);
+        }
+
+        .mov-title {
+          color: var(--mov-text) !important;
+        }
+
+        .mov-muted,
+        .mov-muted-icon {
+          color: var(--mov-muted) !important;
+        }
+
+        .mov-primary-icon {
+          color: var(--mov-primary);
+        }
+
+        .mov-border {
+          border-color: var(--mov-border);
+        }
+
+        .mov-input,
+        .modal-input {
+          background: var(--mov-input);
+          border-color: var(--mov-border);
+          color: var(--mov-text);
+        }
+
+        .mov-input::placeholder,
+        .modal-input::placeholder {
+          color: var(--mov-muted);
+        }
+
+        .mov-input:focus,
+        .modal-input:focus {
+          border-color: var(--mov-primary);
+          box-shadow: 0 0 0 3px color-mix(in srgb, var(--mov-primary) 18%, transparent);
+        }
+
+        .mov-alert-button {
+          background: #fff8e6;
+          border: 1px solid #f2df9c;
+          color: #d6a11a;
+        }
+
+        .mov-primary-button {
+          background: var(--mov-primary);
+        }
+
+        .mov-primary-button:hover {
+          background: var(--mov-primary-hover);
+        }
+
+        .mov-panel {
+          background: var(--mov-panel);
+          border-color: var(--mov-border);
+        }
+
+        .mov-card,
+        .mov-modal {
+          background: var(--mov-card);
+          border-color: var(--mov-border);
+          color: var(--mov-text);
+        }
+
+        .mov-icon-box {
+          background: var(--mov-selected);
+        }
+
+        .mov-load-button {
+          background: var(--mov-selected);
+          color: var(--mov-primary);
+        }
+
+        .mov-load-button:hover {
+          background: var(--mov-input);
+        }
+
+        .mov-cancel-button {
+          background: transparent;
+          border-color: var(--mov-border);
+          color: var(--mov-text);
+        }
+
+        .mov-cancel-button:hover {
+          background: var(--mov-input);
+        }
+
+        .mov-toast {
+          background: var(--mov-button-dark);
+          color: white;
+        }
+
         .modal-input {
           width: 100%;
           height: 44px;
-          border: 1px solid #d9dce8;
+          border: 1px solid var(--mov-border);
           border-radius: 12px;
           padding: 0 14px;
           outline: none;
-          color: #20224a;
-          background: white;
-        }
-
-        .modal-input:focus {
-          border-color: #8f7cf8;
-          box-shadow: 0 0 0 3px rgba(143, 124, 248, 0.12);
         }
 
         .modal-input:disabled {
-          background: #f8f8fc;
-          color: #20224a;
+          background: var(--mov-selected);
+          color: var(--mov-muted);
           cursor: not-allowed;
         }
       `}</style>
@@ -655,14 +761,34 @@ function TabButton({ active, onClick, label }: TabButtonProps) {
   return (
     <button
       onClick={onClick}
-      className={`px-4 h-10 rounded-2xl text-sm font-semibold transition ${
-        active
-          ? "bg-[#8f7cf8] text-white"
-          : "text-[#8f95b2] bg-transparent"
+      className={`mov-tab-button px-4 h-10 rounded-2xl text-sm font-semibold transition ${
+        active ? "active" : ""
       }`}
       type="button"
     >
       {label}
+
+      <style>{`
+        .mov-tab-button {
+          color: var(--mov-muted);
+          background: transparent;
+        }
+
+        .mov-tab-button.active {
+          background: var(--mov-primary);
+          color: white;
+        }
+
+        .mov-tab-button:hover {
+          background: var(--mov-selected);
+          color: var(--mov-primary);
+        }
+
+        .mov-tab-button.active:hover {
+          background: var(--mov-primary-hover);
+          color: white;
+        }
+      `}</style>
     </button>
   )
 }
@@ -675,7 +801,7 @@ type FieldProps = {
 function Field({ label, children }: FieldProps) {
   return (
     <div>
-      <label className="block text-sm text-[#20224a] mb-2">{label}</label>
+      <label className="block text-sm mov-title mb-2">{label}</label>
       {children}
     </div>
   )

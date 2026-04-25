@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react"
-import { Bell, AlertTriangle } from "lucide-react"
+import { Bell, AlertTriangle, Check } from "lucide-react"
 import { getAlertasDashboard } from "../api/dashboard"
+import { useAppTheme } from "../theme/AppThemeContext"
 
 type AlertaNormalizada = {
   id: string
@@ -18,6 +19,7 @@ function Alertas() {
   const [mensaje, setMensaje] = useState("")
 
   const token = localStorage.getItem("token") || ""
+  const { theme } = useAppTheme()
 
   const decodeJwt = (jwt: string) => {
     try {
@@ -134,37 +136,53 @@ function Alertas() {
     return alertas
   }, [filtro, alertas, alertasActivas, alertasResueltas, alertasCriticas])
 
+  const variables = {
+    "--alert-page": theme.page,
+    "--alert-card": theme.card,
+    "--alert-panel": theme.panel,
+    "--alert-input": theme.input,
+    "--alert-text": theme.text,
+    "--alert-muted": theme.muted,
+    "--alert-border": theme.border,
+    "--alert-selected": theme.selected,
+    "--alert-primary": theme.primary,
+    "--alert-primary-hover": theme.primaryHover,
+    "--alert-button-dark": theme.buttonDark,
+  } as React.CSSProperties
+
   if (!puedeVerAlertas) {
     return (
-      <div>
+      <div className="alertas-page" style={variables}>
         <div className="flex items-center gap-2 mb-1">
           <Bell size={18} className="text-[#e9a11b]" />
-          <h1 className="text-[28px] font-bold text-[#20224a] leading-none">
+          <h1 className="text-[28px] font-bold alertas-title leading-none">
             Centro de Alertas
           </h1>
         </div>
 
-        <p className="text-[#8f95b2] text-sm mb-6">
+        <p className="alertas-muted text-sm mb-6">
           Monitorea notificaciones automáticas del sistema
         </p>
 
-        <div className="bg-white rounded-[24px] border border-[#ece7fb] p-8 text-center text-[#9ea3bf]">
+        <div className="alertas-card rounded-[24px] border p-8 text-center alertas-muted">
           No tienes permisos para ver las alertas del sistema.
         </div>
+
+        <style>{alertasStyles}</style>
       </div>
     )
   }
 
   return (
-    <div>
+    <div className="alertas-page" style={variables}>
       <div className="flex items-center gap-2 mb-1">
         <Bell size={18} className="text-[#e9a11b]" />
-        <h1 className="text-[28px] font-bold text-[#20224a] leading-none">
+        <h1 className="text-[28px] font-bold alertas-title leading-none">
           Centro de Alertas
         </h1>
       </div>
 
-      <p className="text-[#8f95b2] text-sm mb-6">
+      <p className="alertas-muted text-sm mb-6">
         Monitorea notificaciones automáticas del sistema
       </p>
 
@@ -192,13 +210,13 @@ function Alertas() {
       </div>
 
       {cargando ? (
-        <div className="bg-white rounded-[24px] border border-[#ece7fb] p-8 text-center text-[#9ea3bf]">
+        <div className="alertas-card rounded-[24px] border p-8 text-center alertas-muted">
           Cargando alertas...
         </div>
       ) : (
         <div className="space-y-3">
           {listaMostrar.length === 0 ? (
-            <div className="bg-transparent p-8 text-center text-[#9ea3bf]">
+            <div className="bg-transparent p-8 text-center alertas-muted">
               {filtro === "resueltas"
                 ? "No hay alertas resueltas aún. Las alertas marcadas como resueltas aparecerán aquí."
                 : "No hay alertas para mostrar."}
@@ -206,64 +224,72 @@ function Alertas() {
           ) : (
             listaMostrar.map((alerta) => {
               const resuelta = alertasResueltasIds.includes(alerta.id)
+              const critica = alerta.severidad === "critica"
 
               return (
                 <div
                   key={alerta.id}
-                  className={`bg-white rounded-[18px] border border-[#ece7fb] px-5 py-4 flex items-start justify-between ${
-                    alerta.severidad === "critica" && !resuelta
-                      ? "border-l-4 border-l-[#ef4e4e]"
-                      : ""
+                  className={`alertas-card rounded-[18px] border px-5 py-4 flex items-center justify-between gap-4 ${
+                    resuelta ? "opacity-70" : ""
                   }`}
                 >
-                  <div className="flex items-start gap-4">
+                  <div className="flex items-start gap-4 min-w-0">
                     <div
-                      className={`w-10 h-10 rounded-xl flex items-center justify-center ${
-                        alerta.severidad === "critica"
-                          ? "bg-[#fff3eb]"
-                          : "bg-[#f5f2ff]"
+                      className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${
+                        critica ? "alertas-icon-critical" : "alertas-icon-active"
                       }`}
                     >
-                      {alerta.severidad === "critica" ? (
-                        <AlertTriangle size={18} className="text-[#e58a57]" />
+                      {resuelta ? (
+                        <Check size={19} />
                       ) : (
-                        <Bell size={18} className="text-[#7f78ff]" />
+                        <AlertTriangle size={19} />
                       )}
                     </div>
 
-                    <div>
-                      <div className="font-semibold text-[#20224a]">
-                        {alerta.titulo}
-                      </div>
-                      <div className="text-[#9ea3bf] text-sm mt-1">
-                        {alerta.descripcion}
-                      </div>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap mb-1">
+                        <h3 className="font-semibold alertas-title truncate">
+                          {alerta.titulo}
+                        </h3>
 
-                      {!resuelta && (
-                        <button
-                          onClick={() => marcarComoResuelta(alerta.id)}
-                          className="mt-3 inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-[#eefbf3] text-[#20a464] hover:bg-[#e4f8eb] transition"
+                        <span
+                          className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold ${
+                            critica
+                              ? "bg-[#fff1f2] text-[#e11d48]"
+                              : "bg-[#fff7ed] text-[#ea580c]"
+                          }`}
                         >
-                          ✓ Marcar como resuelta
-                        </button>
-                      )}
+                          {critica ? "Crítica" : "Activa"}
+                        </span>
+
+                        {resuelta && (
+                          <span className="inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold bg-[#eefbf3] text-[#20a464]">
+                            Resuelta
+                          </span>
+                        )}
+                      </div>
+
+                      <p className="text-sm alertas-muted leading-5">
+                        {alerta.descripcion}
+                      </p>
+
+                      <div className="flex items-center gap-3 mt-2 text-xs alertas-muted">
+                        <span>{alerta.categoria}</span>
+                        <span>•</span>
+                        <span>{alerta.fechaTexto}</span>
+                      </div>
                     </div>
                   </div>
 
-                  <div className="text-right shrink-0 pl-4">
-                    <div className="text-xs text-[#9ea3bf]">
-                      {alerta.fechaTexto}
-                    </div>
-                    <div
-                      className={`text-xs font-semibold mt-1 ${
-                        alerta.severidad === "critica"
-                          ? "text-[#e35d5d]"
-                          : "text-[#20a464]"
-                      }`}
+                  {!resuelta && (
+                    <button
+                      onClick={() => marcarComoResuelta(alerta.id)}
+                      className="h-9 px-4 rounded-xl alertas-resolve-button text-sm font-semibold transition shrink-0"
+                      type="button"
                     >
-                      {resuelta ? "Resuelta" : alerta.severidad === "critica" ? "Crítica" : "Activa"}
-                    </div>
-                  </div>
+                      Marcar resuelta
+                    </button>
+                  )}
                 </div>
               )
             })
@@ -272,10 +298,12 @@ function Alertas() {
       )}
 
       {mensaje && (
-        <div className="fixed right-6 bottom-6 z-[60] rounded-2xl bg-[#20224a] text-white px-5 py-3 shadow-lg">
+        <div className="fixed right-6 bottom-6 z-[60] rounded-2xl alertas-toast px-5 py-3 shadow-lg">
           {mensaje}
         </div>
       )}
+
+      <style>{alertasStyles}</style>
     </div>
   )
 }
@@ -290,14 +318,13 @@ function normalizarAlerta(item: any, index: number): AlertaNormalizada {
 
   const categoria =
     item?.categoria ||
-    item?.categoriaNombre ||
+    item?.categoriaProducto ||
     "Sin categoría"
 
   const stockActual =
     item?.stockActual ??
     item?.stock ??
-    item?.actual ??
-    item?.stockDespues ??
+    item?.cantidad ??
     0
 
   const minimo =
@@ -380,10 +407,8 @@ function TabButton({
   return (
     <button
       onClick={onClick}
-      className={`px-4 h-10 rounded-2xl text-sm font-semibold transition ${
-        active
-          ? "bg-[#8f7cf8] text-white"
-          : "text-[#8f95b2] bg-transparent"
+      className={`alertas-tab-button px-4 h-10 rounded-2xl text-sm font-semibold transition ${
+        active ? "active" : ""
       }`}
       type="button"
     >
@@ -391,5 +416,71 @@ function TabButton({
     </button>
   )
 }
+
+const alertasStyles = `
+  .alertas-page {
+    background: var(--alert-page);
+    color: var(--alert-text);
+    min-height: 100%;
+  }
+
+  .alertas-title {
+    color: var(--alert-text);
+  }
+
+  .alertas-muted {
+    color: var(--alert-muted);
+  }
+
+  .alertas-card {
+    background: var(--alert-card);
+    border-color: var(--alert-border);
+    color: var(--alert-text);
+  }
+
+  .alertas-tab-button {
+    color: var(--alert-muted);
+    background: transparent;
+  }
+
+  .alertas-tab-button.active {
+    background: var(--alert-primary);
+    color: white;
+  }
+
+  .alertas-tab-button:hover {
+    background: var(--alert-selected);
+    color: var(--alert-primary);
+  }
+
+  .alertas-tab-button.active:hover {
+    background: var(--alert-primary-hover);
+    color: white;
+  }
+
+  .alertas-icon-critical {
+    background: #fff1f2;
+    color: #e11d48;
+  }
+
+  .alertas-icon-active {
+    background: #fff7ed;
+    color: #ea580c;
+  }
+
+  .alertas-resolve-button {
+    background: var(--alert-selected);
+    color: var(--alert-primary);
+  }
+
+  .alertas-resolve-button:hover {
+    background: var(--alert-input);
+  }
+
+  .alertas-toast {
+    background: var(--alert-button-dark);
+    color: white;
+  }
+`
 
 export default Alertas

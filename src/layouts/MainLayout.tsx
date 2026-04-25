@@ -8,13 +8,21 @@ import {
   Users,
   LogOut,
   MessageCircle,
+  Palette,
+  Check,
 } from "lucide-react"
-import { useMemo } from "react"
+import { useMemo, useState } from "react"
+import { marcarUsuarioOffline } from "../api/chat"
+import { appThemes } from "../theme/appTheme"
+import type { AppThemeName } from "../theme/appTheme"
+import { useAppTheme } from "../theme/AppThemeContext"
 
 function MainLayout() {
   const navigate = useNavigate()
   const location = useLocation()
   const token = localStorage.getItem("token") || ""
+  const { themeName, theme, setThemeName } = useAppTheme()
+  const [selectorTemaAbierto, setSelectorTemaAbierto] = useState(false)
 
   const decodeJwt = (jwt: string) => {
     try {
@@ -64,18 +72,28 @@ function MainLayout() {
   const puedeVerReportes = esSuperAdmin || esAdmin || esSupervisor
   const puedeVerChat = esSuperAdmin || esAdmin || esSupervisor || esOperador
 
-  const cerrarSesion = () => {
-    localStorage.removeItem("token")
-    navigate("/")
+  const cerrarSesion = async () => {
+    try {
+      await marcarUsuarioOffline()
+    } catch {
+    } finally {
+      localStorage.removeItem("token")
+      navigate("/", { replace: true })
+    }
+  }
+
+  const cambiarTema = (nuevoTema: AppThemeName) => {
+    setThemeName(nuevoTema)
+    setSelectorTemaAbierto(false)
   }
 
   const isActive = (path: string) => location.pathname === path
 
   return (
-    <div className="min-h-screen bg-[#f5f2ff] flex">
-      <aside className="w-[230px] bg-white border-r border-[#ece7fb] flex flex-col h-screen sticky top-0">
+    <div className="min-h-screen flex app-layout">
+      <aside className="app-sidebar w-[230px] border-r flex flex-col h-screen sticky top-0">
         <div className="px-5 pt-6 pb-4">
-          <h1 className="text-[22px] font-bold text-[#20224a]">Inventario</h1>
+          <h1 className="text-[22px] font-bold app-text">Inventario</h1>
 
           <div className="mt-3 inline-flex items-center gap-2 text-sm text-[#14a165]">
             <span className="w-2 h-2 rounded-full bg-[#14a165]"></span>
@@ -83,7 +101,7 @@ function MainLayout() {
           </div>
         </div>
 
-        <div className="px-5 mt-2 text-[11px] font-semibold text-[#9ea3bf]">
+        <div className="px-5 mt-2 text-[11px] font-semibold app-muted">
           PRINCIPAL
         </div>
 
@@ -110,7 +128,7 @@ function MainLayout() {
           />
         </nav>
 
-        <div className="px-5 mt-5 text-[11px] font-semibold text-[#9ea3bf]">
+        <div className="px-5 mt-5 text-[11px] font-semibold app-muted">
           GESTIÓN
         </div>
 
@@ -153,15 +171,42 @@ function MainLayout() {
         </nav>
 
         <div className="mt-auto p-4">
-          <div className="rounded-2xl bg-[#f5f2ff] p-3 flex items-center gap-3 mb-3">
-            <div className="w-10 h-10 rounded-full bg-[#8f7cf8] text-white flex items-center justify-center font-semibold text-sm">
+          <div className="relative mb-3">
+            <button
+              type="button"
+              onClick={() => setSelectorTemaAbierto((prev) => !prev)}
+              className="app-theme-button w-full h-10 rounded-xl text-sm font-semibold flex items-center justify-center gap-2 transition"
+            >
+              <Palette size={16} />
+              Tema: {theme.nombre}
+            </button>
+
+            {selectorTemaAbierto && (
+              <div className="absolute left-0 right-0 bottom-12 rounded-2xl shadow-xl border overflow-hidden app-theme-menu z-50">
+                {(Object.keys(appThemes) as AppThemeName[]).map((item) => (
+                  <button
+                    key={item}
+                    type="button"
+                    onClick={() => cambiarTema(item)}
+                    className="w-full px-4 py-3 text-left text-sm flex items-center justify-between app-theme-option"
+                  >
+                    <span>{appThemes[item].nombre}</span>
+                    {themeName === item && <Check size={15} />}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="rounded-2xl app-user-card p-3 flex items-center gap-3 mb-3">
+            <div className="w-10 h-10 rounded-full app-avatar text-white flex items-center justify-center font-semibold text-sm">
               {esSuperAdmin ? "SA" : esAdmin ? "AD" : esSupervisor ? "SU" : esOperador ? "OP" : "US"}
             </div>
             <div>
-              <p className="text-sm font-semibold text-[#20224a]">
+              <p className="text-sm font-semibold app-text">
                 {payload?.sub || payload?.subject || "Usuario"}
               </p>
-              <p className="text-xs text-[#9ea3bf]">
+              <p className="text-xs app-muted">
                 {esSuperAdmin
                   ? "Super Admin"
                   : esAdmin
@@ -177,7 +222,7 @@ function MainLayout() {
 
           <button
             onClick={cerrarSesion}
-            className="w-full h-10 rounded-xl border border-[#ece7fb] text-sm text-[#20224a] hover:bg-[#f5f2ff] transition flex items-center justify-center gap-2"
+            className="app-logout-button w-full h-10 rounded-xl border text-sm transition flex items-center justify-center gap-2"
             type="button"
           >
             <LogOut size={16} />
@@ -186,28 +231,99 @@ function MainLayout() {
         </div>
       </aside>
 
-      <main className="flex-1 p-6 overflow-auto">
+      <main className="flex-1 p-6 overflow-auto app-main">
         <Outlet />
       </main>
+
+      <style>{`
+        .app-layout {
+          background: var(--app-page);
+        }
+
+        .app-sidebar {
+          background: var(--app-sidebar);
+          border-color: var(--app-border);
+          color: var(--app-text);
+        }
+
+        .app-main {
+          background: var(--app-page);
+        }
+
+        .app-text {
+          color: var(--app-text);
+        }
+
+        .app-muted {
+          color: var(--app-muted);
+        }
+
+        .app-user-card {
+          background: var(--app-selected);
+        }
+
+        .app-avatar {
+          background: var(--app-primary);
+        }
+
+        .app-logout-button {
+          background: var(--app-sidebar);
+          color: var(--app-text);
+          border-color: var(--app-border);
+        }
+
+        .app-logout-button:hover {
+          background: var(--app-selected);
+        }
+
+        .app-theme-button {
+          background: var(--app-sidebar);
+          color: var(--app-text);
+          border: 1px solid var(--app-border);
+        }
+
+        .app-theme-button:hover {
+          background: var(--app-selected);
+        }
+
+        .app-theme-menu {
+          background: var(--app-sidebar);
+          border-color: var(--app-border);
+          color: var(--app-text);
+        }
+
+        .app-theme-option:hover {
+          background: var(--app-selected);
+        }
+
+        .app-menu-item {
+          color: var(--app-text);
+        }
+
+        .app-menu-item svg {
+          color: var(--app-text);
+        }
+
+        .app-menu-item:hover {
+          background: var(--app-selected);
+          color: var(--app-primary);
+        }
+
+        .app-menu-item.active {
+          background: var(--app-selected);
+          color: var(--app-primary);
+        }
+      `}</style>
     </div>
   )
 }
 
-type MenuItemProps = {
-  icon: React.ReactNode
-  text: string
-  active?: boolean
-  onClick?: () => void
-}
-
-function MenuItem({ icon, text, active = false, onClick }: MenuItemProps) {
+function MenuItem({ icon, text, active = false, onClick }: any) {
   return (
     <button
       onClick={onClick}
-      className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm transition ${
-        active
-          ? "bg-[#efeafe] text-[#7f78ff] font-semibold"
-          : "text-[#20224a] hover:bg-[#f5f2ff]"
+      className={`app-menu-item w-full flex items-center gap-3 px-4 py-3 rounded-xl text-sm transition ${
+        active ? "active font-semibold" : ""
       }`}
       type="button"
     >
