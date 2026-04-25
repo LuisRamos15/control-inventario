@@ -1,13 +1,9 @@
 import { useEffect, useMemo, useState } from "react"
 import {
   BarChart3,
-  FileSpreadsheet,
-  FileText,
   Printer,
 } from "lucide-react"
 import {
-  descargarInventarioExcel,
-  descargarInventarioPdf,
   descargarMovimientosPdf,
   getMovimientosReporte,
   getProductosReporte,
@@ -174,26 +170,6 @@ function Reportes() {
     return maximo > 0 ? maximo : 10
   }, [puntosGrafica])
 
-  const handleExportarExcel = async () => {
-    try {
-      const blob = await descargarInventarioExcel()
-      descargarArchivo(blob, "inventario.xlsx")
-    } catch (error) {
-      console.log(error)
-      setMensaje("No se pudo exportar el Excel")
-    }
-  }
-
-  const handleExportarPdf = async () => {
-    try {
-      const blob = await descargarInventarioPdf()
-      descargarArchivo(blob, "inventario.pdf")
-    } catch (error) {
-      console.log(error)
-      setMensaje("No se pudo exportar el PDF")
-    }
-  }
-
   const handleImprimir = async () => {
     try {
       const blob = await descargarMovimientosPdf()
@@ -241,34 +217,14 @@ function Reportes() {
           </p>
         </div>
 
-        <div className="flex items-center gap-3 flex-wrap">
-          <button
-            onClick={handleExportarExcel}
-            className="h-10 px-4 rounded-xl bg-white border border-[#ece7fb] text-[#6c7393] text-sm font-semibold flex items-center gap-2 hover:bg-[#faf9ff] transition"
-            type="button"
-          >
-            <FileSpreadsheet size={16} />
-            Exportar Excel
-          </button>
-
-          <button
-            onClick={handleExportarPdf}
-            className="h-10 px-4 rounded-xl bg-white border border-[#ece7fb] text-[#6c7393] text-sm font-semibold flex items-center gap-2 hover:bg-[#faf9ff] transition"
-            type="button"
-          >
-            <FileText size={16} />
-            Exportar PDF
-          </button>
-
-          <button
-            onClick={handleImprimir}
-            className="h-10 px-4 rounded-xl bg-[#8f7cf8] text-white text-sm font-semibold flex items-center gap-2 hover:bg-[#7e69f6] transition"
-            type="button"
-          >
-            <Printer size={16} />
-            Imprimir
-          </button>
-        </div>
+        <button
+          onClick={handleImprimir}
+          className="h-10 px-4 rounded-xl bg-[#8f7cf8] text-white text-sm font-semibold flex items-center gap-2 hover:bg-[#7e69f6] transition"
+          type="button"
+        >
+          <Printer size={16} />
+          Imprimir
+        </button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4 mb-5">
@@ -399,17 +355,6 @@ function formatearMoneda(valor: number) {
     currency: "COP",
     maximumFractionDigits: 0,
   }).format(valor || 0)
-}
-
-function descargarArchivo(blob: Blob, nombre: string) {
-  const url = window.URL.createObjectURL(blob)
-  const a = document.createElement("a")
-  a.href = url
-  a.download = nombre
-  document.body.appendChild(a)
-  a.click()
-  a.remove()
-  window.URL.revokeObjectURL(url)
 }
 
 export default Reportes

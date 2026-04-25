@@ -1,4 +1,4 @@
-import { Eye, EyeOff, LogIn, Package } from "lucide-react"
+import { Eye, EyeOff, LogIn, Warehouse } from "lucide-react"
 import { useState } from "react"
 import type { FormEvent } from "react"
 import { useNavigate } from "react-router-dom"
@@ -66,11 +66,11 @@ function Login() {
       <div className="w-full max-w-md bg-white rounded-3xl shadow-sm p-10">
         <div className="flex items-center gap-4 mb-8">
           <div className="w-14 h-14 rounded-2xl bg-blue-600 flex items-center justify-center">
-            <Package className="text-white" size={26} />
+            <Warehouse className="text-white" size={26} />
           </div>
 
           <div>
-            <h1 className="text-3xl font-bold text-slate-900">Tu Sistema</h1>
+            <h1 className="text-3xl font-bold text-slate-900">Nexstock</h1>
             <p className="text-sm text-slate-400">Sistema de Control de Inventario</p>
           </div>
         </div>

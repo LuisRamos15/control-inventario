@@ -13,10 +13,32 @@ const getHeaders = () => {
   }
 }
 
+const obtenerUsuarioActualDesdeToken = () => {
+  try {
+    const token = getToken()
+    const base64 = token.split(".")[1]
+    const normalized = base64.replace(/-/g, "+").replace(/_/g, "/")
+    const padded = normalized.padEnd(Math.ceil(normalized.length / 4) * 4, "=")
+    const decoded = atob(padded)
+    const payload = JSON.parse(decoded)
+
+    return String(
+      payload?.sub ||
+        payload?.nombreUsuario ||
+        payload?.username ||
+        payload?.usuario ||
+        ""
+    ).trim()
+  } catch {
+    return ""
+  }
+}
+
 export const getChatContactos = async (): Promise<ChatContacto[]> => {
   const res = await axios.get(`${API_CHAT}/contactos`, {
     headers: getHeaders(),
   })
+
   return Array.isArray(res.data) ? res.data : []
 }
 
@@ -24,7 +46,33 @@ export const getChatConversacion = async (usuario: string): Promise<ChatMensaje[
   const res = await axios.get(`${API_CHAT}/conversacion/${encodeURIComponent(usuario)}`, {
     headers: getHeaders(),
   })
+
   return Array.isArray(res.data) ? res.data : []
+}
+
+export const getUsuariosOnline = async (): Promise<string[]> => {
+  const res = await axios.get(`${API_CHAT}/online`, {
+    headers: getHeaders(),
+  })
+
+  return Array.isArray(res.data) ? res.data : []
+}
+
+export const marcarUsuarioOnline = async (): Promise<string[]> => {
+  const res = await axios.post(`${API_CHAT}/online/conectar`, {}, {
+    headers: getHeaders(),
+  })
+
+  return Array.isArray(res.data) ? res.data : []
+}
+
+export const marcarUsuarioOffline = async (): Promise<void> => {
+  try {
+    await axios.post(`${API_CHAT}/online/desconectar`, {}, {
+      headers: getHeaders(),
+    })
+  } catch {
+  }
 }
 
 export const enviarChatMensaje = async (data: ChatReq): Promise<ChatMensaje> => {
@@ -34,6 +82,7 @@ export const enviarChatMensaje = async (data: ChatReq): Promise<ChatMensaje> => 
       "Content-Type": "application/json",
     },
   })
+
   return res.data
 }
 
@@ -41,6 +90,7 @@ export const puedeChatearCon = async (usuario: string): Promise<boolean> => {
   const res = await axios.get(`${API_CHAT}/permiso/${encodeURIComponent(usuario)}`, {
     headers: getHeaders(),
   })
+
   return Boolean(res.data)
 }
 
@@ -55,7 +105,10 @@ export const crearChatSocket = (
       Authorization: `Bearer ${getToken()}`,
     },
     reconnectDelay: 5000,
+    debug: () => {},
     onConnect: () => {
+      const usuarioActual = obtenerUsuarioActualDesdeToken()
+
       client.subscribe("/user/queue/mensajes", (message) => {
         try {
           const body = JSON.parse(message.body) as ChatMensaje
@@ -64,6 +117,17 @@ export const crearChatSocket = (
           if (onError) onError(error)
         }
       })
+
+      if (usuarioActual) {
+        client.subscribe(`/topic/chat/${usuarioActual}`, (message) => {
+          try {
+            const body = JSON.parse(message.body) as ChatMensaje
+            onMensaje(body)
+          } catch (error) {
+            if (onError) onError(error)
+          }
+        })
+      }
 
       if (onConnect) onConnect()
     },

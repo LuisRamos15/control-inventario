@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react"
-import { MessageCircle, Search, Send } from "lucide-react"
+import { MessageCircle, Search, Send, Plus, Users } from "lucide-react"
 import {
   conectarChatSocket,
   crearChatSocket,
@@ -7,14 +7,25 @@ import {
   enviarChatMensaje,
   getChatContactos,
   getChatConversacion,
+  getUsuariosOnline,
+  marcarUsuarioOffline,
+  marcarUsuarioOnline,
 } from "../api/chat"
+import {
+  crearChatGrupo,
+  enviarChatGrupoMensaje,
+  getChatGrupoMensajes,
+  listarMisChatGrupos,
+} from "../api/chatGrupos"
 import type { ChatContacto, ChatMensaje } from "../types/chat"
-import type { Client } from "@stomp/stompjs"
+import type { ChatGrupo, ChatGrupoMensaje, ChatGrupoReq } from "../types/chatGrupo"
+import type { Client, StompSubscription } from "@stomp/stompjs"
 
 function Chat() {
   const [contactos, setContactos] = useState<ChatContacto[]>([])
   const [contactoSeleccionado, setContactoSeleccionado] = useState<ChatContacto | null>(null)
   const [mensajes, setMensajes] = useState<ChatMensaje[]>([])
+  const [mensajesGrupo, setMensajesGrupo] = useState<ChatGrupoMensaje[]>([])
   const [busqueda, setBusqueda] = useState("")
   const [texto, setTexto] = useState("")
   const [cargandoContactos, setCargandoContactos] = useState(true)
@@ -22,10 +33,32 @@ function Chat() {
   const [enviando, setEnviando] = useState(false)
   const [mensajeError, setMensajeError] = useState("")
   const [noLeidos, setNoLeidos] = useState<Record<string, number>>({})
+  const [noLeidosGrupos, setNoLeidosGrupos] = useState<Record<string, number>>({})
+  const [usuariosOnline, setUsuariosOnline] = useState<Set<string>>(new Set())
+
+  const [vistaChat, setVistaChat] = useState<"usuarios" | "grupos">("usuarios")
+  const [grupos, setGrupos] = useState<ChatGrupo[]>([])
+  const [grupoSeleccionado, setGrupoSeleccionado] = useState<ChatGrupo | null>(null)
+  const [cargandoGrupos, setCargandoGrupos] = useState(false)
+  const [modalGrupoAbierto, setModalGrupoAbierto] = useState(false)
+  const [creandoGrupo, setCreandoGrupo] = useState(false)
+  const [nuevoGrupo, setNuevoGrupo] = useState<ChatGrupoReq>({
+    nombre: "",
+    descripcion: "",
+    miembros: [],
+  })
 
   const socketRef = useRef<Client | null>(null)
   const mensajesRef = useRef<HTMLDivElement | null>(null)
   const pollingRef = useRef<number | null>(null)
+  const presenciaRef = useRef<number | null>(null)
+  const contactoSeleccionadoRef = useRef<ChatContacto | null>(null)
+  const grupoSeleccionadoRef = useRef<ChatGrupo | null>(null)
+  const usuarioActualRef = useRef("")
+  const mensajesProcesadosRef = useRef<Set<string>>(new Set())
+  const mensajesGrupoProcesadosRef = useRef<Set<string>>(new Set())
+  const suscripcionesGruposRef = useRef<StompSubscription[]>([])
+  const suscripcionNuevosGruposRef = useRef<StompSubscription | null>(null)
 
   const token = localStorage.getItem("token") || ""
 
@@ -53,14 +86,92 @@ function Chat() {
     ).trim()
   }, [payload])
 
+  useEffect(() => {
+    usuarioActualRef.current = usuarioActual
+  }, [usuarioActual])
+
+  useEffect(() => {
+    contactoSeleccionadoRef.current = contactoSeleccionado
+  }, [contactoSeleccionado])
+
+  useEffect(() => {
+    grupoSeleccionadoRef.current = grupoSeleccionado
+  }, [grupoSeleccionado])
+
+  const rolActual = useMemo(() => {
+    const valores: string[] = []
+
+    if (payload?.rol) valores.push(String(payload.rol))
+    if (payload?.role) valores.push(String(payload.role))
+    if (payload?.authority) valores.push(String(payload.authority))
+
+    if (Array.isArray(payload?.roles)) {
+      payload.roles.forEach((item: unknown) => {
+        if (typeof item === "string") valores.push(item)
+        if (typeof item === "object" && item !== null && "authority" in item) {
+          valores.push(String((item as { authority: string }).authority))
+        }
+      })
+    }
+
+    if (Array.isArray(payload?.authorities)) {
+      payload.authorities.forEach((item: unknown) => {
+        if (typeof item === "string") valores.push(item)
+        if (typeof item === "object" && item !== null && "authority" in item) {
+          valores.push(String((item as { authority: string }).authority))
+        }
+      })
+    }
+
+    const rolDesdeContacto = contactos.find(
+      (contacto) => contacto.nombreUsuario === usuarioActual
+    )?.rol
+
+    if (rolDesdeContacto) valores.push(rolDesdeContacto)
+
+    const normalizados = valores.map((valor) =>
+      valor.replace("ROLE_", "").trim().toUpperCase()
+    )
+
+    if (normalizados.includes("SUPER_ADMIN")) return "SUPER_ADMIN"
+    if (normalizados.includes("ADMIN")) return "ADMIN"
+    if (normalizados.includes("SUPERVISOR")) return "SUPERVISOR"
+    if (normalizados.includes("OPERADOR")) return "OPERADOR"
+
+    return ""
+  }, [payload, contactos, usuarioActual])
+
+  const puedeCrearGrupo = rolActual === "SUPER_ADMIN" || rolActual === "ADMIN"
+
   const moverContactoArriba = (nombreUsuario: string) => {
     setContactos((prev) => {
       const index = prev.findIndex((c) => c.nombreUsuario === nombreUsuario)
       if (index <= 0) return prev
+
       const copia = [...prev]
       const [contacto] = copia.splice(index, 1)
       copia.unshift(contacto)
       return copia
+    })
+  }
+
+  const moverGrupoArriba = (grupoId: string) => {
+    setGrupos((prev) => {
+      const index = prev.findIndex((g) => g.id === grupoId)
+      if (index <= 0) return prev
+
+      const copia = [...prev]
+      const [grupo] = copia.splice(index, 1)
+      copia.unshift(grupo)
+      return copia
+    })
+  }
+
+  const agregarGrupoSiNoExiste = (grupo: ChatGrupo) => {
+    setGrupos((prev) => {
+      const existe = prev.some((g) => g.id === grupo.id)
+      if (existe) return prev
+      return [grupo, ...prev]
     })
   }
 
@@ -71,51 +182,78 @@ function Chat() {
     }))
   }
 
+  const limpiarNoLeidosGrupo = (grupoId: string) => {
+    setNoLeidosGrupos((prev) => ({
+      ...prev,
+      [grupoId]: 0,
+    }))
+  }
+
+  const cerrarChatAbierto = () => {
+    setContactoSeleccionado(null)
+    setGrupoSeleccionado(null)
+    setMensajes([])
+    setMensajesGrupo([])
+    setTexto("")
+
+    if (pollingRef.current) {
+      window.clearInterval(pollingRef.current)
+      pollingRef.current = null
+    }
+  }
+
   const cargarContactos = async () => {
     try {
       setCargandoContactos(true)
       const data = await getChatContactos()
-      setContactos(data)
-
-      if (data.length > 0) {
-        setContactoSeleccionado((prev) => {
-          if (prev) {
-            const encontrado = data.find((c) => c.nombreUsuario === prev.nombreUsuario)
-            return encontrado || data[0]
-          }
-          return data[0]
-        })
-      } else {
-        setContactoSeleccionado(null)
-      }
+      setContactos(Array.isArray(data) ? data : [])
     } catch (error) {
       console.log(error)
       setContactos([])
-      setContactoSeleccionado(null)
       setMensajeError("No se pudieron cargar los contactos")
     } finally {
       setCargandoContactos(false)
     }
   }
 
+  const cargarGrupos = async () => {
+    try {
+      setCargandoGrupos(true)
+      const data = await listarMisChatGrupos()
+      setGrupos(Array.isArray(data) ? data : [])
+    } catch (error) {
+      console.log(error)
+      setGrupos([])
+      setMensajeError("No se pudieron cargar los grupos")
+    } finally {
+      setCargandoGrupos(false)
+    }
+  }
+
+  const cargarUsuariosOnline = async () => {
+    try {
+      const data = await getUsuariosOnline()
+      setUsuariosOnline(new Set(Array.isArray(data) ? data : []))
+    } catch (error) {
+      console.log(error)
+    }
+  }
+
+  const marcarConectado = async () => {
+    try {
+      const data = await marcarUsuarioOnline()
+      setUsuariosOnline(new Set(Array.isArray(data) ? data : []))
+    } catch (error) {
+      console.log(error)
+    }
+  }
+
   const cargarConversacion = async (usuario: string, mostrarCarga = true) => {
     try {
-      if (mostrarCarga) {
-        setCargandoMensajes(true)
-      }
+      if (mostrarCarga) setCargandoMensajes(true)
 
       const data = await getChatConversacion(usuario)
-
-      setMensajes((prev) => {
-        if (prev.length === 0) return data
-
-        const prevIds = new Set(prev.map((item) => item.id))
-        const sonIguales =
-          prev.length === data.length &&
-          data.every((item) => prevIds.has(item.id))
-
-        return sonIguales ? prev : data
-      })
+      setMensajes(Array.isArray(data) ? data : [])
     } catch (error) {
       console.log(error)
       if (mostrarCarga) {
@@ -123,15 +261,152 @@ function Chat() {
         setMensajeError("No se pudo cargar la conversación")
       }
     } finally {
-      if (mostrarCarga) {
-        setCargandoMensajes(false)
-      }
+      if (mostrarCarga) setCargandoMensajes(false)
     }
+  }
+
+  const cargarMensajesGrupo = async (grupoId: string, mostrarCarga = true) => {
+    try {
+      if (mostrarCarga) setCargandoMensajes(true)
+
+      const data = await getChatGrupoMensajes(grupoId)
+      setMensajesGrupo(Array.isArray(data) ? data : [])
+    } catch (error) {
+      console.log(error)
+      if (mostrarCarga) {
+        setMensajesGrupo([])
+        setMensajeError("No se pudieron cargar los mensajes del grupo")
+      }
+    } finally {
+      if (mostrarCarga) setCargandoMensajes(false)
+    }
+  }
+
+  const limpiarSuscripcionesGrupos = () => {
+    suscripcionesGruposRef.current.forEach((sub) => {
+      try {
+        sub.unsubscribe()
+      } catch {
+      }
+    })
+    suscripcionesGruposRef.current = []
+  }
+
+  const suscribirANuevosGrupos = () => {
+    const client = socketRef.current
+    const actual = usuarioActualRef.current
+
+    if (!client || !client.connected || !actual) return
+
+    try {
+      if (suscripcionNuevosGruposRef.current) {
+        suscripcionNuevosGruposRef.current.unsubscribe()
+      }
+    } catch {
+    }
+
+    suscripcionNuevosGruposRef.current = client.subscribe(
+      `/topic/chat/grupos/${actual}`,
+      (message) => {
+        try {
+          const grupo = JSON.parse(message.body) as ChatGrupo
+          agregarGrupoSiNoExiste(grupo)
+          setVistaChat("grupos")
+        } catch (error) {
+          console.log(error)
+        }
+      }
+    )
+  }
+
+  const suscribirAGrupos = () => {
+    const client = socketRef.current
+
+    if (!client || !client.connected) return
+
+    limpiarSuscripcionesGrupos()
+
+    grupos.forEach((grupo) => {
+      const sub = client.subscribe(`/topic/chat/grupo/${grupo.id}`, (message) => {
+        try {
+          const body = JSON.parse(message.body) as ChatGrupoMensaje
+          const grupoId = body.grupoId || grupo.id
+          const idMensaje = body.id || `${grupoId}-${body.remitente}-${body.fecha}-${body.mensaje}`
+
+          if (mensajesGrupoProcesadosRef.current.has(idMensaje)) return
+          mensajesGrupoProcesadosRef.current.add(idMensaje)
+
+          const actual = usuarioActualRef.current
+          const abierto = grupoSeleccionadoRef.current
+          const esMio = body.remitente === actual
+          const estaAbierto = abierto?.id === grupoId
+
+          moverGrupoArriba(grupoId)
+
+          if (!estaAbierto && !esMio) {
+            setNoLeidosGrupos((prev) => ({
+              ...prev,
+              [grupoId]: (prev[grupoId] || 0) + 1,
+            }))
+          }
+
+          if (estaAbierto) {
+            setMensajesGrupo((prev) => {
+              const existe = prev.some((item) => item.id === body.id)
+              if (existe) return prev
+              return [...prev, body]
+            })
+          }
+        } catch (error) {
+          console.log(error)
+        }
+      })
+
+      suscripcionesGruposRef.current.push(sub)
+    })
   }
 
   useEffect(() => {
     cargarContactos()
+    cargarGrupos()
+    marcarConectado()
+    cargarUsuariosOnline()
+
+    presenciaRef.current = window.setInterval(() => {
+      marcarConectado()
+      cargarUsuariosOnline()
+    }, 5000)
+
+    const handleBeforeUnload = () => {
+      marcarUsuarioOffline()
+    }
+
+    window.addEventListener("beforeunload", handleBeforeUnload)
+
+    return () => {
+      marcarUsuarioOffline()
+      window.removeEventListener("beforeunload", handleBeforeUnload)
+
+      if (presenciaRef.current) {
+        window.clearInterval(presenciaRef.current)
+        presenciaRef.current = null
+      }
+    }
   }, [])
+
+  useEffect(() => {
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !modalGrupoAbierto) {
+        cerrarChatAbierto()
+      }
+    }
+
+    window.addEventListener("keydown", handleEscape)
+
+    return () => {
+      window.removeEventListener("keydown", handleEscape)
+    }
+  }, [modalGrupoAbierto])
 
   useEffect(() => {
     if (!contactoSeleccionado) {
@@ -142,13 +417,11 @@ function Chat() {
     limpiarNoLeidos(contactoSeleccionado.nombreUsuario)
     cargarConversacion(contactoSeleccionado.nombreUsuario, true)
 
-    if (pollingRef.current) {
-      window.clearInterval(pollingRef.current)
-    }
+    if (pollingRef.current) window.clearInterval(pollingRef.current)
 
     pollingRef.current = window.setInterval(() => {
       cargarConversacion(contactoSeleccionado.nombreUsuario, false)
-    }, 2000)
+    }, 2500)
 
     return () => {
       if (pollingRef.current) {
@@ -159,44 +432,74 @@ function Chat() {
   }, [contactoSeleccionado])
 
   useEffect(() => {
+    if (!grupoSeleccionado) {
+      setMensajesGrupo([])
+      return
+    }
+
+    limpiarNoLeidosGrupo(grupoSeleccionado.id)
+    cargarMensajesGrupo(grupoSeleccionado.id, true)
+
+    if (pollingRef.current) window.clearInterval(pollingRef.current)
+
+    pollingRef.current = window.setInterval(() => {
+      cargarMensajesGrupo(grupoSeleccionado.id, false)
+    }, 2500)
+
+    return () => {
+      if (pollingRef.current) {
+        window.clearInterval(pollingRef.current)
+        pollingRef.current = null
+      }
+    }
+  }, [grupoSeleccionado])
+
+  useEffect(() => {
     const client = crearChatSocket(
       (mensajeRecibido) => {
+        const idMensaje =
+          mensajeRecibido.id ||
+          `${mensajeRecibido.remitente}-${mensajeRecibido.destinatario}-${mensajeRecibido.fecha}-${mensajeRecibido.mensaje}`
+
+        if (mensajesProcesadosRef.current.has(idMensaje)) return
+        mensajesProcesadosRef.current.add(idMensaje)
+
+        const actual = usuarioActualRef.current
+        const abierto = contactoSeleccionadoRef.current
+
         const otroUsuario =
-          mensajeRecibido.remitente === usuarioActual
+          mensajeRecibido.remitente === actual
             ? mensajeRecibido.destinatario
             : mensajeRecibido.remitente
 
         moverContactoArriba(otroUsuario)
 
-        const estaAbierto = contactoSeleccionado?.nombreUsuario === otroUsuario
+        const estaAbierto = abierto?.nombreUsuario === otroUsuario
+        const esMio = mensajeRecibido.remitente === actual
 
-        if (!estaAbierto && mensajeRecibido.remitente !== usuarioActual) {
+        if (!estaAbierto && !esMio) {
           setNoLeidos((prev) => ({
             ...prev,
             [otroUsuario]: (prev[otroUsuario] || 0) + 1,
           }))
         }
 
-        const perteneceAConversacion =
-          contactoSeleccionado &&
-          (
-            (mensajeRecibido.remitente === contactoSeleccionado.nombreUsuario &&
-              mensajeRecibido.destinatario === usuarioActual) ||
-            (mensajeRecibido.remitente === usuarioActual &&
-              mensajeRecibido.destinatario === contactoSeleccionado.nombreUsuario)
-          )
-
-        if (!perteneceAConversacion) {
-          return
+        if (estaAbierto) {
+          setMensajes((prev) => {
+            const existe = prev.some((item) => item.id === mensajeRecibido.id)
+            if (existe) return prev
+            return [...prev, mensajeRecibido]
+          })
         }
-
-        setMensajes((prev) => {
-          const existe = prev.some((item) => item.id === mensajeRecibido.id)
-          if (existe) return prev
-          return [...prev, mensajeRecibido]
-        })
       },
-      undefined,
+      () => {
+        marcarConectado()
+        cargarUsuariosOnline()
+        setTimeout(() => {
+          suscribirANuevosGrupos()
+          suscribirAGrupos()
+        }, 400)
+      },
       (error) => {
         console.log(error)
       }
@@ -206,10 +509,27 @@ function Chat() {
     conectarChatSocket(client)
 
     return () => {
+      limpiarSuscripcionesGrupos()
+
+      try {
+        if (suscripcionNuevosGruposRef.current) {
+          suscripcionNuevosGruposRef.current.unsubscribe()
+        }
+      } catch {
+      }
+
       desconectarChatSocket(socketRef.current)
       socketRef.current = null
     }
-  }, [contactoSeleccionado, usuarioActual])
+  }, [])
+
+  useEffect(() => {
+    suscribirAGrupos()
+  }, [grupos])
+
+  useEffect(() => {
+    suscribirANuevosGrupos()
+  }, [usuarioActual])
 
   useEffect(() => {
     if (!mensajeError) return
@@ -220,11 +540,10 @@ function Chat() {
   useEffect(() => {
     if (!mensajesRef.current) return
     mensajesRef.current.scrollTop = mensajesRef.current.scrollHeight
-  }, [mensajes])
+  }, [mensajes, mensajesGrupo])
 
   const contactosFiltrados = useMemo(() => {
     const q = busqueda.trim().toLowerCase()
-
     if (!q) return contactos
 
     return contactos.filter((contacto) => {
@@ -234,36 +553,146 @@ function Chat() {
     })
   }, [contactos, busqueda])
 
-  const enviar = async () => {
-    if (!contactoSeleccionado) return
+  const gruposFiltrados = useMemo(() => {
+    const q = busqueda.trim().toLowerCase()
+    if (!q) return grupos
 
-    const mensaje = texto.trim()
+    return grupos.filter((grupo) => {
+      const nombre = grupo.nombre.toLowerCase()
+      const descripcion = grupo.descripcion?.toLowerCase() || ""
+      return nombre.includes(q) || descripcion.includes(q)
+    })
+  }, [grupos, busqueda])
 
-    if (!mensaje) return
+  const seleccionarContacto = (contacto: ChatContacto) => {
+    setGrupoSeleccionado(null)
+    setMensajesGrupo([])
+    setContactoSeleccionado(contacto)
+    limpiarNoLeidos(contacto.nombreUsuario)
+    setTexto("")
+  }
+
+  const seleccionarGrupo = (grupo: ChatGrupo) => {
+    setContactoSeleccionado(null)
+    setMensajes([])
+    setGrupoSeleccionado(grupo)
+    limpiarNoLeidosGrupo(grupo.id)
+    setTexto("")
+  }
+
+  const toggleMiembroGrupo = (nombreUsuario: string) => {
+    setNuevoGrupo((prev) => {
+      const existe = prev.miembros.includes(nombreUsuario)
+
+      return {
+        ...prev,
+        miembros: existe
+          ? prev.miembros.filter((item) => item !== nombreUsuario)
+          : [...prev.miembros, nombreUsuario],
+      }
+    })
+  }
+
+  const cerrarModalGrupo = () => {
+    setModalGrupoAbierto(false)
+    setNuevoGrupo({
+      nombre: "",
+      descripcion: "",
+      miembros: [],
+    })
+  }
+
+  const guardarGrupo = async () => {
+    const nombre = nuevoGrupo.nombre.trim()
+
+    if (!nombre) {
+      setMensajeError("El nombre del grupo es obligatorio")
+      return
+    }
+
+    if (nuevoGrupo.miembros.length === 0) {
+      setMensajeError("Selecciona al menos un integrante")
+      return
+    }
 
     try {
-      setEnviando(true)
+      setCreandoGrupo(true)
 
-      const guardado = await enviarChatMensaje({
-        destinatario: contactoSeleccionado.nombreUsuario,
-        mensaje,
+      const grupoCreado = await crearChatGrupo({
+        nombre,
+        descripcion: nuevoGrupo.descripcion.trim(),
+        miembros: nuevoGrupo.miembros,
       })
 
-      setMensajes((prev) => {
-        const existe = prev.some((item) => item.id === guardado.id)
-        if (existe) return prev
-        return [...prev, guardado]
-      })
-
-      moverContactoArriba(contactoSeleccionado.nombreUsuario)
-      setTexto("")
-
-      await cargarConversacion(contactoSeleccionado.nombreUsuario, false)
+      cerrarModalGrupo()
+      agregarGrupoSiNoExiste(grupoCreado)
+      await cargarGrupos()
+      setVistaChat("grupos")
+      setContactoSeleccionado(null)
+      setGrupoSeleccionado(grupoCreado)
     } catch (error) {
       console.log(error)
-      setMensajeError("No se pudo enviar el mensaje")
+      setMensajeError("No se pudo crear el grupo")
     } finally {
-      setEnviando(false)
+      setCreandoGrupo(false)
+    }
+  }
+
+  const enviar = async () => {
+    const mensaje = texto.trim()
+    if (!mensaje) return
+
+    if (contactoSeleccionado) {
+      try {
+        setEnviando(true)
+
+        const guardado = await enviarChatMensaje({
+          destinatario: contactoSeleccionado.nombreUsuario,
+          mensaje,
+        })
+
+        setMensajes((prev) => {
+          const existe = prev.some((item) => item.id === guardado.id)
+          if (existe) return prev
+          return [...prev, guardado]
+        })
+
+        moverContactoArriba(contactoSeleccionado.nombreUsuario)
+        setTexto("")
+        await cargarConversacion(contactoSeleccionado.nombreUsuario, false)
+      } catch (error) {
+        console.log(error)
+        setMensajeError("No se pudo enviar el mensaje")
+      } finally {
+        setEnviando(false)
+      }
+
+      return
+    }
+
+    if (grupoSeleccionado) {
+      try {
+        setEnviando(true)
+
+        const guardado = await enviarChatGrupoMensaje(grupoSeleccionado.id, {
+          mensaje,
+        })
+
+        setMensajesGrupo((prev) => {
+          const existe = prev.some((item) => item.id === guardado.id)
+          if (existe) return prev
+          return [...prev, guardado]
+        })
+
+        moverGrupoArriba(grupoSeleccionado.id)
+        setTexto("")
+        await cargarMensajesGrupo(grupoSeleccionado.id, false)
+      } catch (error) {
+        console.log(error)
+        setMensajeError("No se pudo enviar el mensaje al grupo")
+      } finally {
+        setEnviando(false)
+      }
     }
   }
 
@@ -285,38 +714,127 @@ function Chat() {
         <section className="bg-white rounded-[28px] border border-[#ece7fb] flex flex-col overflow-hidden">
           <div className="p-5 border-b border-[#f0ebfc]">
             <div className="relative">
-              <Search
-                size={16}
-                className="absolute left-4 top-1/2 -translate-y-1/2 text-[#9ea3bf]"
-              />
+              <Search size={16} className="absolute left-4 top-1/2 -translate-y-1/2 text-[#9ea3bf]" />
               <input
                 type="text"
-                placeholder="Buscar usuario o rol..."
+                placeholder={vistaChat === "usuarios" ? "Buscar usuario o rol..." : "Buscar grupo..."}
                 value={busqueda}
                 onChange={(e) => setBusqueda(e.target.value)}
                 className="w-full h-11 rounded-2xl bg-[#f8f6ff] border border-[#ece7fb] pl-10 pr-4 text-sm text-[#20224a] outline-none"
               />
             </div>
+
+            <div className="grid grid-cols-2 gap-2 mt-4">
+              <button
+                type="button"
+                onClick={() => setVistaChat("usuarios")}
+                className={`h-10 rounded-2xl text-sm font-semibold transition ${
+                  vistaChat === "usuarios"
+                    ? "bg-[#8f7cf8] text-white"
+                    : "bg-[#f8f6ff] text-[#7f78ff] border border-[#ece7fb]"
+                }`}
+              >
+                Usuarios
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setVistaChat("grupos")}
+                className={`h-10 rounded-2xl text-sm font-semibold transition ${
+                  vistaChat === "grupos"
+                    ? "bg-[#8f7cf8] text-white"
+                    : "bg-[#f8f6ff] text-[#7f78ff] border border-[#ece7fb]"
+                }`}
+              >
+                Grupos
+              </button>
+            </div>
+
+            {vistaChat === "grupos" && puedeCrearGrupo && (
+              <button
+                type="button"
+                onClick={() => setModalGrupoAbierto(true)}
+                className="mt-3 w-full h-10 rounded-2xl bg-[#20224a] text-white text-sm font-semibold flex items-center justify-center gap-2 hover:bg-[#2d2f63] transition"
+              >
+                <Plus size={15} />
+                Nuevo grupo
+              </button>
+            )}
           </div>
 
           <div className="flex-1 overflow-y-auto p-3 space-y-2">
-            {cargandoContactos ? (
+            {vistaChat === "usuarios" ? (
+              cargandoContactos ? (
+                <div className="h-full flex items-center justify-center text-[#9ea3bf] text-sm">
+                  Cargando contactos...
+                </div>
+              ) : contactosFiltrados.length === 0 ? (
+                <div className="h-full flex items-center justify-center text-[#9ea3bf] text-sm text-center px-4">
+                  No hay usuarios disponibles para chatear
+                </div>
+              ) : (
+                contactosFiltrados.map((contacto) => {
+                  const seleccionado = contactoSeleccionado?.nombreUsuario === contacto.nombreUsuario
+                  const cantidadNoLeidos = noLeidos[contacto.nombreUsuario] || 0
+                  const online = usuariosOnline.has(contacto.nombreUsuario)
+
+                  return (
+                    <button
+                      key={contacto.id}
+                      onClick={() => seleccionarContacto(contacto)}
+                      className={`w-full text-left rounded-2xl px-4 py-3 transition border ${
+                        seleccionado
+                          ? "bg-[#f3efff] border-[#dcd2ff]"
+                          : "bg-white border-transparent hover:bg-[#faf8ff]"
+                      }`}
+                      type="button"
+                    >
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <div className="font-semibold text-[#20224a] truncate">
+                            {contacto.nombreUsuario}
+                          </div>
+                          <div className="text-xs text-[#8f95b2] mt-1">
+                            {contacto.rol}
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0">
+                          {cantidadNoLeidos > 0 && (
+                            <span className="min-w-5 h-5 px-1 rounded-full bg-[#8f7cf8] text-white text-[11px] font-semibold flex items-center justify-center">
+                              {cantidadNoLeidos}
+                            </span>
+                          )}
+
+                          <span
+                            title={online ? "En línea" : "Desconectado"}
+                            className={`w-2.5 h-2.5 rounded-full ${
+                              online ? "bg-[#20a464]" : "bg-[#cbd5e1]"
+                            }`}
+                          ></span>
+                        </div>
+                      </div>
+                    </button>
+                  )
+                })
+              )
+            ) : cargandoGrupos ? (
               <div className="h-full flex items-center justify-center text-[#9ea3bf] text-sm">
-                Cargando contactos...
+                Cargando grupos...
               </div>
-            ) : contactosFiltrados.length === 0 ? (
+            ) : gruposFiltrados.length === 0 ? (
               <div className="h-full flex items-center justify-center text-[#9ea3bf] text-sm text-center px-4">
-                No hay usuarios disponibles para chatear
+                No hay grupos disponibles
               </div>
             ) : (
-              contactosFiltrados.map((contacto) => {
-                const seleccionado = contactoSeleccionado?.nombreUsuario === contacto.nombreUsuario
-                const cantidadNoLeidos = noLeidos[contacto.nombreUsuario] || 0
+              gruposFiltrados.map((grupo) => {
+                const seleccionado = grupoSeleccionado?.id === grupo.id
+                const cantidadNoLeidosGrupo = noLeidosGrupos[grupo.id] || 0
 
                 return (
                   <button
-                    key={contacto.id}
-                    onClick={() => setContactoSeleccionado(contacto)}
+                    key={grupo.id}
+                    onClick={() => seleccionarGrupo(grupo)}
                     className={`w-full text-left rounded-2xl px-4 py-3 transition border ${
                       seleccionado
                         ? "bg-[#f3efff] border-[#dcd2ff]"
@@ -325,28 +843,26 @@ function Chat() {
                     type="button"
                   >
                     <div className="flex items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <div className="font-semibold text-[#20224a] truncate">
-                          {contacto.nombreUsuario}
+                      <div className="flex items-center gap-3 min-w-0">
+                        <div className="w-10 h-10 rounded-full bg-[#f3efff] flex items-center justify-center shrink-0">
+                          <Users size={18} className="text-[#7f78ff]" />
                         </div>
-                        <div className="text-xs text-[#8f95b2] mt-1">
-                          {contacto.rol}
+
+                        <div className="min-w-0">
+                          <div className="font-semibold text-[#20224a] truncate">
+                            {grupo.nombre}
+                          </div>
+                          <div className="text-xs text-[#8f95b2] mt-1 truncate">
+                            {grupo.miembros?.length || 0} integrantes
+                          </div>
                         </div>
                       </div>
 
-                      <div className="flex items-center gap-2 shrink-0">
-                        {cantidadNoLeidos > 0 && (
-                          <span className="min-w-5 h-5 px-1 rounded-full bg-[#8f7cf8] text-white text-[11px] font-semibold flex items-center justify-center">
-                            {cantidadNoLeidos}
-                          </span>
-                        )}
-
-                        <span
-                          className={`w-2.5 h-2.5 rounded-full ${
-                            contacto.activo ? "bg-[#20a464]" : "bg-[#d1d5db]"
-                          }`}
-                        ></span>
-                      </div>
+                      {cantidadNoLeidosGrupo > 0 && (
+                        <span className="min-w-5 h-5 px-1 rounded-full bg-[#8f7cf8] text-white text-[11px] font-semibold flex items-center justify-center shrink-0">
+                          {cantidadNoLeidosGrupo}
+                        </span>
+                      )}
                     </div>
                   </button>
                 )
@@ -367,10 +883,7 @@ function Chat() {
                 </div>
               </div>
 
-              <div
-                ref={mensajesRef}
-                className="flex-1 overflow-y-auto px-6 py-5 bg-[#fcfbff]"
-              >
+              <div ref={mensajesRef} className="flex-1 overflow-y-auto px-6 py-5 bg-[#fcfbff]">
                 {cargandoMensajes ? (
                   <div className="h-full flex items-center justify-center text-[#9ea3bf] text-sm">
                     Cargando conversación...
@@ -385,10 +898,7 @@ function Chat() {
                       const esMio = item.remitente === usuarioActual
 
                       return (
-                        <div
-                          key={item.id}
-                          className={`flex ${esMio ? "justify-end" : "justify-start"}`}
-                        >
+                        <div key={item.id} className={`flex ${esMio ? "justify-end" : "justify-start"}`}>
                           <div
                             className={`max-w-[70%] rounded-2xl px-4 py-3 ${
                               esMio
@@ -399,11 +909,7 @@ function Chat() {
                             <div className="text-sm whitespace-pre-wrap break-words">
                               {item.mensaje}
                             </div>
-                            <div
-                              className={`text-[11px] mt-2 ${
-                                esMio ? "text-[#e9e5ff]" : "text-[#9ea3bf]"
-                              }`}
-                            >
+                            <div className={`text-[11px] mt-2 ${esMio ? "text-[#e9e5ff]" : "text-[#9ea3bf]"}`}>
                               {formatearHora(item.fecha)}
                             </div>
                           </div>
@@ -414,11 +920,8 @@ function Chat() {
                 )}
               </div>
 
-              <form
-                onSubmit={handleSubmit}
-                className="px-6 py-4 border-t border-[#f0ebfc] bg-white"
-              >
-                <div className="flex items-center gap-3">
+              <form onSubmit={handleSubmit} className="px-6 py-4 border-t border-[#f0ebfc] bg-white">
+                <div className="max-w-[920px] mx-auto flex items-center gap-3">
                   <input
                     type="text"
                     value={texto}
@@ -438,25 +941,196 @@ function Chat() {
                 </div>
               </form>
             </>
-          ) : (
-            <div className="h-full flex items-center justify-center text-center px-6">
-              <div>
-                <div className="flex justify-center mb-4">
-                  <div className="w-16 h-16 rounded-full bg-[#f3efff] flex items-center justify-center">
-                    <MessageCircle size={26} className="text-[#7f78ff]" />
-                  </div>
+          ) : grupoSeleccionado ? (
+            <>
+              <div className="px-6 py-5 border-b border-[#f0ebfc]">
+                <div className="font-bold text-[20px] text-[#20224a]">
+                  {grupoSeleccionado.nombre}
                 </div>
-                <div className="text-[20px] font-bold text-[#20224a] mb-2">
-                  Selecciona una conversación
-                </div>
-                <div className="text-sm text-[#8f95b2]">
-                  Elige un usuario disponible para comenzar a chatear.
+                <div className="text-sm text-[#8f95b2] mt-1">
+                  {grupoSeleccionado.descripcion || "Grupo interno de trabajo"}
                 </div>
               </div>
-            </div>
+
+              <div ref={mensajesRef} className="flex-1 overflow-y-auto px-6 py-5 bg-[#fcfbff]">
+                {cargandoMensajes ? (
+                  <div className="h-full flex items-center justify-center text-[#9ea3bf] text-sm">
+                    Cargando mensajes del grupo...
+                  </div>
+                ) : mensajesGrupo.length === 0 ? (
+                  <div className="h-full flex items-center justify-center text-[#9ea3bf] text-sm text-center">
+                    No hay mensajes en este grupo. Inicia la conversación.
+                  </div>
+                ) : (
+                  <div className="space-y-3">
+                    {mensajesGrupo.map((item) => {
+                      const esMio = item.remitente === usuarioActual
+
+                      return (
+                        <div key={item.id} className={`flex ${esMio ? "justify-end" : "justify-start"}`}>
+                          <div
+                            className={`max-w-[70%] rounded-2xl px-4 py-3 ${
+                              esMio
+                                ? "bg-[#8f7cf8] text-white"
+                                : "bg-white border border-[#ece7fb] text-[#20224a]"
+                            }`}
+                          >
+                            {!esMio && (
+                              <div className="text-[11px] font-semibold text-[#7f78ff] mb-1">
+                                {item.remitente}
+                              </div>
+                            )}
+                            <div className="text-sm whitespace-pre-wrap break-words">
+                              {item.mensaje}
+                            </div>
+                            <div className={`text-[11px] mt-2 ${esMio ? "text-[#e9e5ff]" : "text-[#9ea3bf]"}`}>
+                              {formatearHora(item.fecha)}
+                            </div>
+                          </div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+
+              <form onSubmit={handleSubmit} className="px-6 py-4 border-t border-[#f0ebfc] bg-white">
+                <div className="max-w-[920px] mx-auto flex items-center gap-3">
+                  <input
+                    type="text"
+                    value={texto}
+                    onChange={(e) => setTexto(e.target.value)}
+                    placeholder="Escribe un mensaje al grupo..."
+                    className="flex-1 h-12 rounded-2xl border border-[#e5defa] px-4 text-sm text-[#20224a] outline-none"
+                  />
+
+                  <button
+                    type="submit"
+                    disabled={enviando || !texto.trim()}
+                    className="h-12 px-5 rounded-2xl bg-[#8f7cf8] text-white font-semibold flex items-center gap-2 hover:bg-[#7e69f6] transition disabled:opacity-60"
+                  >
+                    <Send size={16} />
+                    Enviar
+                  </button>
+                </div>
+              </form>
+            </>
+          ) : (
+            <div className="h-full bg-white"></div>
           )}
         </section>
       </div>
+
+      {modalGrupoAbierto && (
+        <div className="fixed inset-0 z-50 bg-black/30 flex items-center justify-center px-4">
+          <div className="w-full max-w-[520px] bg-white rounded-[28px] shadow-xl border border-[#ece7fb] overflow-hidden">
+            <div className="px-6 py-5 border-b border-[#f0ebfc]">
+              <h2 className="text-[22px] font-bold text-[#20224a]">Nuevo grupo</h2>
+              <p className="text-sm text-[#8f95b2] mt-1">
+                Crea un grupo interno para organizar conversaciones por equipo.
+              </p>
+            </div>
+
+            <div className="p-6 space-y-4">
+              <div>
+                <label className="block text-sm font-semibold text-[#20224a] mb-2">
+                  Nombre del grupo
+                </label>
+                <input
+                  type="text"
+                  value={nuevoGrupo.nombre}
+                  onChange={(e) =>
+                    setNuevoGrupo((prev) => ({
+                      ...prev,
+                      nombre: e.target.value,
+                    }))
+                  }
+                  className="w-full h-11 rounded-2xl bg-[#f8f6ff] border border-[#ece7fb] px-4 text-sm text-[#20224a] outline-none"
+                  placeholder="Ej: Administradores"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-[#20224a] mb-2">
+                  Descripción
+                </label>
+                <textarea
+                  value={nuevoGrupo.descripcion}
+                  onChange={(e) =>
+                    setNuevoGrupo((prev) => ({
+                      ...prev,
+                      descripcion: e.target.value,
+                    }))
+                  }
+                  className="w-full min-h-[90px] rounded-2xl bg-[#f8f6ff] border border-[#ece7fb] px-4 py-3 text-sm text-[#20224a] outline-none resize-none"
+                  placeholder="Descripción opcional del grupo"
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-semibold text-[#20224a] mb-2">
+                  Integrantes
+                </label>
+
+                <div className="max-h-[210px] overflow-y-auto rounded-2xl border border-[#ece7fb] bg-[#fcfbff] p-2 space-y-1">
+                  {contactos.length === 0 ? (
+                    <div className="text-sm text-[#9ea3bf] text-center py-4">
+                      No hay usuarios disponibles
+                    </div>
+                  ) : (
+                    contactos
+                      .filter((contacto) => contacto.nombreUsuario !== usuarioActual)
+                      .map((contacto) => {
+                        const marcado = nuevoGrupo.miembros.includes(contacto.nombreUsuario)
+
+                        return (
+                          <label
+                            key={contacto.id}
+                            className="flex items-center gap-3 px-3 py-2 rounded-xl hover:bg-white cursor-pointer"
+                          >
+                            <input
+                              type="checkbox"
+                              checked={marcado}
+                              onChange={() => toggleMiembroGrupo(contacto.nombreUsuario)}
+                              className="w-4 h-4 accent-[#8f7cf8]"
+                            />
+                            <div className="min-w-0">
+                              <div className="text-sm font-semibold text-[#20224a] truncate">
+                                {contacto.nombreUsuario}
+                              </div>
+                              <div className="text-xs text-[#8f95b2]">
+                                {contacto.rol}
+                              </div>
+                            </div>
+                          </label>
+                        )
+                      })
+                  )}
+                </div>
+              </div>
+            </div>
+
+            <div className="px-6 py-4 border-t border-[#f0ebfc] flex justify-end gap-3">
+              <button
+                type="button"
+                onClick={cerrarModalGrupo}
+                className="h-11 px-5 rounded-2xl border border-[#e5defa] text-[#20224a] font-semibold hover:bg-[#f8f6ff] transition"
+              >
+                Cancelar
+              </button>
+
+              <button
+                type="button"
+                onClick={guardarGrupo}
+                disabled={creandoGrupo}
+                className="h-11 px-5 rounded-2xl bg-[#8f7cf8] text-white font-semibold hover:bg-[#7e69f6] transition disabled:opacity-60"
+              >
+                {creandoGrupo ? "Creando..." : "Crear grupo"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {mensajeError && (
         <div className="fixed right-6 bottom-6 z-[60] rounded-2xl bg-[#20224a] text-white px-5 py-3 shadow-lg">
@@ -472,9 +1146,7 @@ function formatearHora(fecha: string) {
 
   const valor = new Date(fecha)
 
-  if (isNaN(valor.getTime())) {
-    return ""
-  }
+  if (isNaN(valor.getTime())) return ""
 
   return valor.toLocaleTimeString("es-CO", {
     hour: "2-digit",

@@ -19,6 +19,7 @@ function Movimientos() {
   const [modal, setModal] = useState(false)
   const [modalExito, setModalExito] = useState(false)
   const [mensaje, setMensaje] = useState("")
+  const [errorMovimiento, setErrorMovimiento] = useState("")
   const [filtro, setFiltro] = useState("todos")
   const [page, setPage] = useState(0)
   const [hayMas, setHayMas] = useState(true)
@@ -74,8 +75,7 @@ function Movimientos() {
   const puedeRegistrarMovimiento =
     roles.length === 0 || esSuperAdmin || esAdmin || esSupervisor || esOperador
 
-  const puedeVerAlertas =
-    esSuperAdmin || esAdmin || esSupervisor
+  const puedeVerAlertas = esSuperAdmin || esAdmin || esSupervisor
 
   const [form, setForm] = useState({
     productoId: "",
@@ -117,13 +117,8 @@ function Movimientos() {
         sort: "fecha,desc",
       }
 
-      if (filtroActual === "entradas") {
-        params.tipo = "ENTRADA"
-      }
-
-      if (filtroActual === "salidas") {
-        params.tipo = "SALIDA"
-      }
+      if (filtroActual === "entradas") params.tipo = "ENTRADA"
+      if (filtroActual === "salidas") params.tipo = "SALIDA"
 
       const res = await axios.get(API_MOVIMIENTOS, {
         headers: getHeaders(),
@@ -142,9 +137,7 @@ function Movimientos() {
       setHayMas(!last)
     } catch (error) {
       console.log(error)
-      if (reset) {
-        setMovimientos([])
-      }
+      if (reset) setMovimientos([])
       setHayMas(false)
     } finally {
       setCargando(false)
@@ -175,6 +168,7 @@ function Movimientos() {
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const { name, value } = e.target
+    setErrorMovimiento("")
 
     if (name === "cantidad") {
       const soloNumeros = value.replace(/[^\d]/g, "")
@@ -206,6 +200,7 @@ function Movimientos() {
       cantidad: "",
       motivo: "",
     })
+    setErrorMovimiento("")
   }
 
   const cerrarModal = () => {
@@ -218,10 +213,71 @@ function Movimientos() {
     setModal(true)
   }
 
-  const registrarMovimiento = async () => {
-    try {
-      const productoSeleccionado = productos.find((p) => p.id === form.productoId)
+  const obtenerProductoSeleccionado = () => {
+    return productos.find((p) => String(p.id) === String(form.productoId))
+  }
 
+  const obtenerMensajeBackend = (error: any) => {
+    const data = error?.response?.data
+
+    if (typeof data === "string") return data
+
+    if (data && typeof data === "object") {
+      return String(
+        data.error ||
+          data.message ||
+          data.mensaje ||
+          data.detail ||
+          "La operación no pudo completarse. Revise la cantidad ingresada y los límites de stock del producto."
+      )
+    }
+
+    return "La operación no pudo completarse. Revise la cantidad ingresada y los límites de stock del producto."
+  }
+
+  const validarMovimientoEnFrontend = () => {
+    const productoSeleccionado = obtenerProductoSeleccionado()
+    const tipoFinal = esOperador ? "SALIDA" : form.tipo
+    const cantidad = form.cantidad === "" ? 0 : Number(form.cantidad)
+
+    if (!productoSeleccionado) {
+      setErrorMovimiento("Seleccione un producto antes de registrar el movimiento.")
+      return false
+    }
+
+    if (!cantidad || cantidad <= 0) {
+      setErrorMovimiento("Ingrese una cantidad válida mayor que cero.")
+      return false
+    }
+
+    const stockActual = Number(productoSeleccionado.stock ?? 0)
+    const stockMaximo = Number(productoSeleccionado.stockMaximo ?? 0)
+
+    if (tipoFinal === "SALIDA" && cantidad > stockActual) {
+      setErrorMovimiento(
+        `No se puede registrar la salida. Está intentando retirar ${cantidad} unidad(es), pero el stock disponible es de ${stockActual} unidad(es).`
+      )
+      return false
+    }
+
+    if (tipoFinal === "ENTRADA" && stockMaximo > 0 && stockActual + cantidad > stockMaximo) {
+      const disponible = Math.max(stockMaximo - stockActual, 0)
+      setErrorMovimiento(
+        `No se puede registrar la entrada. El stock actual es ${stockActual}, el stock máximo permitido es ${stockMaximo} y solo puede ingresar ${disponible} unidad(es).`
+      )
+      return false
+    }
+
+    return true
+  }
+
+  const registrarMovimiento = async () => {
+    setErrorMovimiento("")
+
+    if (!validarMovimientoEnFrontend()) return
+
+    try {
+      const productoSeleccionado = obtenerProductoSeleccionado()
       const tipoFinal = esOperador ? "SALIDA" : form.tipo
 
       const payloadMovimiento = {
@@ -244,7 +300,7 @@ function Movimientos() {
       setModalExito(true)
     } catch (error) {
       console.log(error)
-      setMensaje("No se pudo registrar el movimiento")
+      setErrorMovimiento(obtenerMensajeBackend(error))
     }
   }
 
@@ -324,21 +380,9 @@ function Movimientos() {
 
       <section className="bg-[#f3efff] rounded-[28px] border border-[#ece7fb] p-6">
         <div className="flex items-center gap-3 mb-6">
-          <TabButton
-            active={filtro === "todos"}
-            onClick={() => setFiltro("todos")}
-            label="Todos"
-          />
-          <TabButton
-            active={filtro === "entradas"}
-            onClick={() => setFiltro("entradas")}
-            label="Entradas"
-          />
-          <TabButton
-            active={filtro === "salidas"}
-            onClick={() => setFiltro("salidas")}
-            label="Salidas"
-          />
+          <TabButton active={filtro === "todos"} onClick={() => setFiltro("todos")} label="Todos" />
+          <TabButton active={filtro === "entradas"} onClick={() => setFiltro("entradas")} label="Entradas" />
+          <TabButton active={filtro === "salidas"} onClick={() => setFiltro("salidas")} label="Salidas" />
         </div>
 
         <div className="space-y-3">
@@ -510,6 +554,12 @@ function Movimientos() {
                     placeholder="Ej: reposición, venta, ajuste"
                   />
                 </Field>
+
+                {errorMovimiento && (
+                  <div className="rounded-2xl border border-[#fecaca] bg-[#fff1f2] px-4 py-3 text-sm text-[#be123c] leading-5">
+                    {errorMovimiento}
+                  </div>
+                )}
               </div>
 
               <div className="border-t border-[#ece7fb] mt-5 pt-4 flex justify-center gap-3">

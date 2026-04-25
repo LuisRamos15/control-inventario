@@ -1,34 +1,32 @@
 import { useEffect, useMemo, useState } from "react"
 import axios from "axios"
-import { Package, Pencil, Trash2, Search, Bell, X, Check } from "lucide-react"
+import {
+  Bell,
+  Search,
+  Plus,
+  X,
+  ArrowDownLeft,
+  ArrowUpRight,
+  Check,
+} from "lucide-react"
 import { useNavigate } from "react-router-dom"
-import { connectSocket, disconnectSocket } from "../services/socket"
 
-function Inventario() {
+function Movimientos() {
+  const [movimientos, setMovimientos] = useState<any[]>([])
   const [productos, setProductos] = useState<any[]>([])
+  const [cargando, setCargando] = useState(true)
+  const [cargandoMas, setCargandoMas] = useState(false)
   const [modal, setModal] = useState(false)
-  const [modoEdicion, setModoEdicion] = useState(false)
-  const [productoEditandoId, setProductoEditandoId] = useState<string | null>(null)
-  const [filtro, setFiltro] = useState("todos")
-  const [busqueda, setBusqueda] = useState("")
-  const [mensaje, setMensaje] = useState("")
-  const [modalEliminar, setModalEliminar] = useState(false)
-  const [productoAEliminar, setProductoAEliminar] = useState<any | null>(null)
   const [modalExito, setModalExito] = useState(false)
-
-  const [form, setForm] = useState({
-    sku: "",
-    nombre: "",
-    categoria: "",
-    minimo: 10,
-    stockMaximo: "",
-    stock: "",
-    precioUnitario: "",
-    descripcion: "",
-  })
+  const [mensaje, setMensaje] = useState("")
+  const [errorMovimiento, setErrorMovimiento] = useState("")
+  const [filtro, setFiltro] = useState("todos")
+  const [page, setPage] = useState(0)
+  const [hayMas, setHayMas] = useState(true)
 
   const token = localStorage.getItem("token") || ""
-  const API = "http://localhost:8080/api/productos"
+  const API_MOVIMIENTOS = "http://localhost:8080/api/movimientos"
+  const API_PRODUCTOS = "http://localhost:8080/api/productos"
   const navigate = useNavigate()
 
   const decodeJwt = (jwt: string) => {
@@ -69,26 +67,31 @@ function Inventario() {
     return []
   }, [payload])
 
-  const puedeGestionarProductos =
-    roles.includes("SUPER_ADMIN") ||
-    roles.includes("ADMIN") ||
-    roles.includes("SUPERVISOR") ||
-    roles.includes("ROLE_SUPER_ADMIN") ||
-    roles.includes("ROLE_ADMIN") ||
-    roles.includes("ROLE_SUPERVISOR")
+  const esSuperAdmin = roles.includes("SUPER_ADMIN") || roles.includes("ROLE_SUPER_ADMIN")
+  const esAdmin = roles.includes("ADMIN") || roles.includes("ROLE_ADMIN")
+  const esSupervisor = roles.includes("SUPERVISOR") || roles.includes("ROLE_SUPERVISOR")
+  const esOperador = roles.includes("OPERADOR") || roles.includes("ROLE_OPERADOR")
 
-  const puedeVerAlertas =
-    roles.includes("SUPER_ADMIN") ||
-    roles.includes("ADMIN") ||
-    roles.includes("SUPERVISOR") ||
-    roles.includes("ROLE_SUPER_ADMIN") ||
-    roles.includes("ROLE_ADMIN") ||
-    roles.includes("ROLE_SUPERVISOR")
+  const puedeRegistrarMovimiento =
+    roles.length === 0 || esSuperAdmin || esAdmin || esSupervisor || esOperador
 
-  const obtenerProductos = async () => {
+  const puedeVerAlertas = esSuperAdmin || esAdmin || esSupervisor
+
+  const [form, setForm] = useState({
+    productoId: "",
+    tipo: esOperador ? "SALIDA" : "ENTRADA",
+    cantidad: "",
+    motivo: "",
+  })
+
+  const getHeaders = () => ({
+    Authorization: `Bearer ${token}`,
+  })
+
+  const cargarProductos = async () => {
     try {
-      const res = await axios.get(API, {
-        headers: { Authorization: `Bearer ${token}` },
+      const res = await axios.get(API_PRODUCTOS, {
+        headers: getHeaders(),
       })
       setProductos(Array.isArray(res.data) ? res.data : [])
     } catch (error) {
@@ -96,59 +99,108 @@ function Inventario() {
     }
   }
 
-  useEffect(() => {
-    obtenerProductos()
+  const cargarMovimientos = async (
+    pageValue: number,
+    reset: boolean,
+    filtroActual: string
+  ) => {
+    try {
+      if (pageValue === 0) {
+        setCargando(true)
+      } else {
+        setCargandoMas(true)
+      }
 
-    connectSocket(() => {
-      obtenerProductos()
-    })
+      const params: any = {
+        page: pageValue,
+        size: 8,
+        sort: "fecha,desc",
+      }
 
-    return () => {
-      disconnectSocket()
+      if (filtroActual === "entradas") params.tipo = "ENTRADA"
+      if (filtroActual === "salidas") params.tipo = "SALIDA"
+
+      const res = await axios.get(API_MOVIMIENTOS, {
+        headers: getHeaders(),
+        params,
+      })
+
+      const content = Array.isArray(res.data?.content) ? res.data.content : []
+      const last = Boolean(res.data?.last)
+
+      if (reset) {
+        setMovimientos(content)
+      } else {
+        setMovimientos((prev) => [...prev, ...content])
+      }
+
+      setHayMas(!last)
+    } catch (error) {
+      console.log(error)
+      if (reset) setMovimientos([])
+      setHayMas(false)
+    } finally {
+      setCargando(false)
+      setCargandoMas(false)
     }
+  }
+
+  useEffect(() => {
+    cargarProductos()
   }, [])
 
   useEffect(() => {
+    setPage(0)
+    cargarMovimientos(0, true, filtro)
+  }, [filtro])
+
+  useEffect(() => {
     if (!mensaje) return
-
-    const timer = setTimeout(() => {
-      setMensaje("")
-    }, 2500)
-
+    const timer = setTimeout(() => setMensaje(""), 4000)
     return () => clearTimeout(timer)
   }, [mensaje])
 
-  const handleChange = (e: any) => {
-    const { name, value } = e.target
+  const cargarMas = async () => {
+    const nextPage = page + 1
+    setPage(nextPage)
+    await cargarMovimientos(nextPage, false, filtro)
+  }
 
-    if (name === "stockMaximo" || name === "stock" || name === "precioUnitario") {
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
+    const { name, value } = e.target
+    setErrorMovimiento("")
+
+    if (name === "cantidad") {
       const soloNumeros = value.replace(/[^\d]/g, "")
-      setForm({
-        ...form,
+      setForm((prev) => ({
+        ...prev,
         [name]: soloNumeros,
-      })
+      }))
       return
     }
 
-    setForm({
-      ...form,
+    if (name === "tipo" && esOperador) {
+      setForm((prev) => ({
+        ...prev,
+        tipo: "SALIDA",
+      }))
+      return
+    }
+
+    setForm((prev) => ({
+      ...prev,
       [name]: value,
-    })
+    }))
   }
 
   const limpiarFormulario = () => {
     setForm({
-      sku: "",
-      nombre: "",
-      categoria: "",
-      minimo: 10,
-      stockMaximo: "",
-      stock: "",
-      precioUnitario: "",
-      descripcion: "",
+      productoId: "",
+      tipo: esOperador ? "SALIDA" : "ENTRADA",
+      cantidad: "",
+      motivo: "",
     })
-    setModoEdicion(false)
-    setProductoEditandoId(null)
+    setErrorMovimiento("")
   }
 
   const cerrarModal = () => {
@@ -156,164 +208,141 @@ function Inventario() {
     limpiarFormulario()
   }
 
-  const abrirCrear = () => {
-    setModoEdicion(false)
-    setProductoEditandoId(null)
-    setForm({
-      sku: "",
-      nombre: "",
-      categoria: "",
-      minimo: 10,
-      stockMaximo: "",
-      stock: "",
-      precioUnitario: "",
-      descripcion: "",
-    })
+  const abrirModal = () => {
+    limpiarFormulario()
     setModal(true)
   }
 
-  const abrirEditar = (producto: any) => {
-    setModoEdicion(true)
-    setProductoEditandoId(producto.id)
-    setForm({
-      sku: producto.sku || "",
-      nombre: producto.nombre || "",
-      categoria: producto.categoria || "",
-      minimo: 10,
-      stockMaximo:
-        producto.stockMaximo === null || producto.stockMaximo === undefined
-          ? ""
-          : String(producto.stockMaximo),
-      stock:
-        producto.stock === null || producto.stock === undefined
-          ? ""
-          : String(producto.stock),
-      precioUnitario:
-        producto.precioUnitario === null || producto.precioUnitario === undefined
-          ? ""
-          : String(producto.precioUnitario),
-      descripcion: producto.descripcion || "",
-    })
-    setModal(true)
+  const obtenerProductoSeleccionado = () => {
+    return productos.find((p) => String(p.id) === String(form.productoId))
   }
 
-  const guardarProducto = async () => {
-    try {
-      if (modoEdicion && productoEditandoId) {
-        const payloadEditar = {
-          nombre: form.nombre,
-          categoria: form.categoria,
-          descripcion: form.descripcion,
-          precioUnitario: form.precioUnitario === "" ? 0 : Number(form.precioUnitario),
-          stockMaximo: form.stockMaximo === "" ? 0 : Number(form.stockMaximo),
-        }
+  const obtenerMensajeBackend = (error: any) => {
+    const data = error?.response?.data
 
-        await axios.patch(`${API}/${productoEditandoId}`, payloadEditar, {
-          headers: { Authorization: `Bearer ${token}` },
-        })
+    if (!data) return ""
 
-        cerrarModal()
-        await obtenerProductos()
-        setModalExito(true)
-      } else {
-        const payloadCrear = {
-          sku: form.sku,
-          nombre: form.nombre,
-          categoria: form.categoria,
-          minimo: 10,
-          stockMaximo: form.stockMaximo === "" ? 0 : Number(form.stockMaximo),
-          stock: form.stock === "" ? 0 : Number(form.stock),
-          precioUnitario: form.precioUnitario === "" ? 0 : Number(form.precioUnitario),
-          descripcion: form.descripcion,
-        }
+    if (typeof data === "string") return data
 
-        await axios.post(API, payloadCrear, {
-          headers: { Authorization: `Bearer ${token}` },
-        })
-
-        cerrarModal()
-        await obtenerProductos()
-        setMensaje("Producto guardado exitosamente")
-      }
-    } catch (error) {
-      console.log(error)
-      setMensaje("No se pudo guardar el producto")
-    }
-  }
-
-  const abrirEliminar = (producto: any) => {
-    setProductoAEliminar(producto)
-    setModalEliminar(true)
-  }
-
-  const cerrarEliminar = () => {
-    setProductoAEliminar(null)
-    setModalEliminar(false)
-  }
-
-  const eliminarProducto = async () => {
-    if (!productoAEliminar?.id) return
-
-    try {
-      await axios.delete(`${API}/${productoAEliminar.id}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      })
-
-      cerrarEliminar()
-      await obtenerProductos()
-      setMensaje("Producto eliminado exitosamente")
-    } catch (error) {
-      console.log(error)
-      setMensaje("No se pudo eliminar el producto")
-    }
-  }
-
-  const estadoProducto = (producto: any) => {
-    return producto.stock <= producto.minimo ? "critico" : "normal"
-  }
-
-  const formatearMoneda = (valor: number) => {
-    return new Intl.NumberFormat("es-CO", {
-      style: "currency",
-      currency: "COP",
-      maximumFractionDigits: 0,
-    }).format(valor || 0)
-  }
-
-  const productosFiltrados = useMemo(() => {
-    let lista = [...productos]
-
-    if (filtro === "normales") {
-      lista = lista.filter((producto) => estadoProducto(producto) === "normal")
-    }
-
-    if (filtro === "criticos") {
-      lista = lista.filter((producto) => estadoProducto(producto) === "critico")
-    }
-
-    if (busqueda.trim()) {
-      const q = busqueda.toLowerCase()
-      lista = lista.filter(
-        (producto) =>
-          producto.nombre?.toLowerCase().includes(q) ||
-          producto.sku?.toLowerCase().includes(q) ||
-          producto.categoria?.toLowerCase().includes(q)
+    if (typeof data === "object") {
+      return String(
+        data.error ||
+          data.message ||
+          data.mensaje ||
+          data.detail ||
+          "No se pudo registrar el movimiento"
       )
     }
 
-    return lista
-  }, [productos, filtro, busqueda])
+    return String(data)
+  }
 
-  const totalTodos = productos.length
-  const totalNormales = productos.filter((p) => estadoProducto(p) === "normal").length
-  const totalCriticos = productos.filter((p) => estadoProducto(p) === "critico").length
+  const validarMovimientoEnFrontend = () => {
+    const productoSeleccionado = obtenerProductoSeleccionado()
+    const tipoFinal = esOperador ? "SALIDA" : form.tipo
+    const cantidad = form.cantidad === "" ? 0 : Number(form.cantidad)
+
+    if (!productoSeleccionado) {
+      setErrorMovimiento("Seleccione un producto antes de registrar el movimiento.")
+      return false
+    }
+
+    if (!cantidad || cantidad <= 0) {
+      setErrorMovimiento("Ingrese una cantidad válida mayor que cero.")
+      return false
+    }
+
+    const stockActual = Number(productoSeleccionado.stock ?? 0)
+    const stockMaximo = Number(productoSeleccionado.stockMaximo ?? 0)
+
+    if (tipoFinal === "SALIDA" && cantidad > stockActual) {
+      setErrorMovimiento(
+        `No se puede registrar la salida. Está intentando retirar ${cantidad} unidad(es), pero el stock disponible es de ${stockActual} unidad(es).`
+      )
+      return false
+    }
+
+    if (tipoFinal === "ENTRADA" && stockMaximo > 0 && stockActual + cantidad > stockMaximo) {
+      const disponible = Math.max(stockMaximo - stockActual, 0)
+      setErrorMovimiento(
+        `No se puede registrar la entrada. El stock actual es ${stockActual}, el stock máximo permitido es ${stockMaximo} y solo puede ingresar ${disponible} unidad(es).`
+      )
+      return false
+    }
+
+    return true
+  }
+
+  const registrarMovimiento = async () => {
+    setErrorMovimiento("")
+
+    if (!validarMovimientoEnFrontend()) return
+
+    try {
+      const productoSeleccionado = obtenerProductoSeleccionado()
+      const tipoFinal = esOperador ? "SALIDA" : form.tipo
+
+      const payloadMovimiento = {
+        productoId: form.productoId,
+        sku: productoSeleccionado?.sku || "",
+        productoNombre: productoSeleccionado?.nombre || "",
+        tipo: tipoFinal,
+        cantidad: form.cantidad === "" ? 0 : Number(form.cantidad),
+        motivo: form.motivo,
+      }
+
+      await axios.post(API_MOVIMIENTOS, payloadMovimiento, {
+        headers: getHeaders(),
+      })
+
+      cerrarModal()
+      setPage(0)
+      await cargarMovimientos(0, true, filtro)
+      await cargarProductos()
+      setModalExito(true)
+    } catch (error) {
+      console.log(error)
+      const msg = obtenerMensajeBackend(error)
+      setErrorMovimiento(msg)
+    }
+  }
+
+  const formatearFecha = (fecha: any) => {
+    if (!fecha) return "-"
+    const f = new Date(fecha)
+    if (isNaN(f.getTime())) return String(fecha)
+
+    return f.toLocaleString("es-CO", {
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit",
+      hour: "2-digit",
+      minute: "2-digit",
+      hour12: false,
+    })
+  }
+
+  const normalizarTipo = (tipo: any) => {
+    const t = String(tipo || "").toUpperCase()
+    if (t.includes("ENTRADA")) return "ENTRADA"
+    if (t.includes("SALIDA")) return "SALIDA"
+    return "MOVIMIENTO"
+  }
 
   return (
     <div>
       <div className="flex items-center justify-between mb-5">
-        <h1 className="text-[34px] font-bold text-[#20224a] leading-none">
-          Gestión de Inventario
-        </h1>
+        <div>
+          <div className="flex items-center gap-2 mb-1">
+            <ArrowUpRight size={18} className="text-[#7f78ff]" />
+            <h1 className="text-[32px] font-bold text-[#20224a] leading-none">
+              Registro de Movimientos
+            </h1>
+          </div>
+          <p className="text-[#8f95b2] text-sm">
+            Historial de entradas y salidas de productos
+          </p>
+        </div>
 
         <div className="flex items-center gap-4">
           <div className="relative">
@@ -324,8 +353,6 @@ function Inventario() {
             <input
               type="text"
               placeholder="Buscar..."
-              value={busqueda}
-              onChange={(e) => setBusqueda(e.target.value)}
               className="w-[220px] h-11 rounded-2xl bg-[#f3efff] border border-[#ece7fb] pl-10 pr-4 text-sm text-[#20224a] outline-none"
             />
           </div>
@@ -341,13 +368,14 @@ function Inventario() {
             </button>
           )}
 
-          {puedeGestionarProductos && (
+          {puedeRegistrarMovimiento && (
             <button
-              onClick={abrirCrear}
+              onClick={abrirModal}
               className="h-11 rounded-2xl bg-[#8f7cf8] text-white font-semibold px-5 flex items-center justify-center gap-2 hover:bg-[#7e69f6] transition"
               type="button"
             >
-              Nuevo Producto
+              <Plus size={16} />
+              Nuevo Movimiento
             </button>
           )}
         </div>
@@ -355,142 +383,94 @@ function Inventario() {
 
       <section className="bg-[#f3efff] rounded-[28px] border border-[#ece7fb] p-6">
         <div className="flex items-center gap-3 mb-6">
-          <TabButton
-            active={filtro === "todos"}
-            onClick={() => setFiltro("todos")}
-            label={`Todos (${totalTodos})`}
-          />
-          <TabButton
-            active={filtro === "normales"}
-            onClick={() => setFiltro("normales")}
-            label={`Normales (${totalNormales})`}
-          />
-          <TabButton
-            active={filtro === "criticos"}
-            onClick={() => setFiltro("criticos")}
-            label={`Críticos (${totalCriticos})`}
-          />
+          <TabButton active={filtro === "todos"} onClick={() => setFiltro("todos")} label="Todos" />
+          <TabButton active={filtro === "entradas"} onClick={() => setFiltro("entradas")} label="Entradas" />
+          <TabButton active={filtro === "salidas"} onClick={() => setFiltro("salidas")} label="Salidas" />
         </div>
 
-        <div className="bg-white rounded-[24px] border border-[#ece7fb] overflow-hidden">
-          <div
-            className={`grid px-7 py-5 text-[12px] font-semibold tracking-wide text-[#9ea3bf] uppercase ${
-              puedeGestionarProductos
-                ? "grid-cols-[0.8fr_2fr_1fr_1.1fr_1.15fr_0.8fr_0.9fr_0.9fr]"
-                : "grid-cols-[0.8fr_2fr_1fr_1.1fr_1.15fr_0.8fr_0.9fr]"
-            }`}
-          >
-            <div>SKU</div>
-            <div>Producto</div>
-            <div>Categoría</div>
-            <div className="text-center">Valor Unitario</div>
-            <div>Stock Actual</div>
-            <div className="text-center">Stock Máx.</div>
-            <div>Estado</div>
-            {puedeGestionarProductos && <div>Acciones</div>}
-          </div>
-
-          {productosFiltrados.length === 0 ? (
-            <div className="px-8 py-16 text-center text-[#9ea3bf]">
-              No hay productos para mostrar
+        <div className="space-y-3">
+          {cargando ? (
+            <div className="px-6 py-12 text-center text-[#9ea3bf]">
+              Cargando movimientos...
+            </div>
+          ) : movimientos.length === 0 ? (
+            <div className="px-6 py-12 text-center text-[#9ea3bf]">
+              No hay movimientos para mostrar
             </div>
           ) : (
-            productosFiltrados.map((producto, index) => {
-              const estado = estadoProducto(producto)
-              const porcentaje =
-                producto.stockMaximo && producto.stockMaximo > 0
-                  ? Math.min((producto.stock / producto.stockMaximo) * 100, 100)
-                  : 0
+            movimientos.map((movimiento, index) => {
+              const tipo = normalizarTipo(movimiento.tipo)
+              const esEntrada = tipo === "ENTRADA"
 
               return (
                 <div
-                  key={producto.id || index}
-                  className={`grid items-center px-7 py-4 border-t border-[#f0ebfc] ${
-                    puedeGestionarProductos
-                      ? "grid-cols-[0.8fr_2fr_1fr_1.1fr_1.15fr_0.8fr_0.9fr_0.9fr]"
-                      : "grid-cols-[0.8fr_2fr_1fr_1.1fr_1.15fr_0.8fr_0.9fr]"
-                  }`}
+                  key={movimiento.id || index}
+                  className="bg-white rounded-[18px] border border-[#ece7fb] px-5 py-4 flex items-center justify-between"
                 >
-                  <div className="text-sm text-[#8f95b2]">{producto.sku}</div>
-
-                  <div className="flex items-center gap-3 min-w-0">
-                    <div className="w-10 h-10 rounded-xl bg-[#f5f2ff] flex items-center justify-center shrink-0">
-                      <Package size={16} className="text-[#7f78ff]" />
+                  <div className="flex items-center gap-4 min-w-0">
+                    <div className="w-11 h-11 rounded-xl bg-[#f5f2ff] flex items-center justify-center">
+                      {esEntrada ? (
+                        <ArrowDownLeft size={18} className="text-[#20a464]" />
+                      ) : (
+                        <ArrowUpRight size={18} className="text-[#e58a57]" />
+                      )}
                     </div>
 
                     <div className="min-w-0">
                       <div className="font-semibold text-[#20224a] truncate">
-                        {producto.nombre}
+                        {movimiento.productoNombre || "Producto"}
                       </div>
-                      <div className="text-[#9ea3bf] text-sm">
-                        {producto.sku}
+                      <div className="text-[#9ea3bf] text-sm truncate">
+                        {(movimiento.sku || "SINSKU") +
+                          " · Usuario: " +
+                          (movimiento.usuario || "sistema") +
+                          (movimiento.motivo ? " · Motivo: " + movimiento.motivo : "")}
                       </div>
                     </div>
                   </div>
 
-                  <div className="text-[#5f6481] text-sm">
-                    {producto.categoria}
-                  </div>
+                  <div className="flex items-center gap-5 shrink-0">
+                    <span
+                      className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold ${
+                        esEntrada
+                          ? "bg-[#eefbf3] text-[#20a464]"
+                          : "bg-[#fff1ea] text-[#e58a57]"
+                      }`}
+                    >
+                      {tipo}
+                    </span>
 
-                  <div className="text-[#20224a] font-semibold text-sm text-center whitespace-nowrap">
-                    {formatearMoneda(Number(producto.precioUnitario ?? 0))}
-                  </div>
+                    <span
+                      className={`font-semibold text-sm ${
+                        esEntrada ? "text-[#20a464]" : "text-[#e35d5d]"
+                      }`}
+                    >
+                      {esEntrada ? "+" : "-"}
+                      {movimiento.cantidad ?? 0}
+                    </span>
 
-                  <div className="flex items-center gap-2">
-                    <div className="w-[135px] h-2 rounded-full bg-[#ece7fb] overflow-hidden">
-                      <div
-                        className={`h-full rounded-full ${
-                          estado === "critico" ? "bg-[#ef4e4e]" : "bg-[#8f7cf8]"
-                        }`}
-                        style={{ width: `${porcentaje}%` }}
-                      ></div>
-                    </div>
-
-                    <span className="font-semibold text-[#20224a] w-[22px] text-left text-sm">
-                      {producto.stock}
+                    <span className="text-[#9ea3bf] text-sm min-w-[130px] text-right">
+                      {formatearFecha(movimiento.fecha)}
                     </span>
                   </div>
-
-                  <div className="text-[#9ea3bf] font-medium text-sm text-center">
-                    {producto.stockMaximo}
-                  </div>
-
-                  <div>
-                    {estado === "critico" ? (
-                      <span className="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-[#fff0f0] text-[#e35d5d] whitespace-nowrap">
-                        △ Crítico
-                      </span>
-                    ) : (
-                      <span className="inline-flex items-center rounded-full px-3 py-1 text-xs font-semibold bg-[#eefbf3] text-[#20a464] whitespace-nowrap">
-                        ✓ Normal
-                      </span>
-                    )}
-                  </div>
-
-                  {puedeGestionarProductos && (
-                    <div className="flex items-center gap-2">
-                      <button
-                        onClick={() => abrirEditar(producto)}
-                        className="w-10 h-10 rounded-xl bg-[#f5f2ff] flex items-center justify-center text-[#f2a15e] hover:bg-[#eee8ff] transition"
-                        type="button"
-                      >
-                        <Pencil size={16} />
-                      </button>
-
-                      <button
-                        onClick={() => abrirEliminar(producto)}
-                        className="w-10 h-10 rounded-xl bg-[#fff1f1] flex items-center justify-center text-[#d86a6a] hover:bg-[#ffe5e5] transition"
-                        type="button"
-                      >
-                        <Trash2 size={16} />
-                      </button>
-                    </div>
-                  )}
                 </div>
               )
             })
           )}
         </div>
+
+        {!cargando && movimientos.length > 0 && hayMas && (
+          <div className="flex justify-center mt-6">
+            <button
+              onClick={cargarMas}
+              disabled={cargandoMas}
+              className="h-9 px-5 rounded-full bg-[#ece7fb] text-[#7f78ff] text-sm font-semibold hover:bg-[#e2dcfb] transition disabled:opacity-60"
+              type="button"
+            >
+              {cargandoMas ? "Cargando..." : "Cargar más registros"}
+            </button>
+          </div>
+        )}
       </section>
 
       {modal && (
@@ -507,113 +487,82 @@ function Inventario() {
 
               <div className="text-center">
                 <h2 className="text-[22px] font-bold text-[#20224a] leading-none">
-                  {modoEdicion ? "Editar Producto" : "Nuevo Producto"}
+                  Nuevo Movimiento
                 </h2>
                 <p className="text-[#8f95b2] text-sm mt-2">
-                  Complete la información del producto
+                  {esOperador
+                    ? "Registra una salida de inventario"
+                    : "Registra una entrada o salida de inventario"}
                 </p>
               </div>
             </div>
 
             <div className="px-6 pb-5">
               <div className="space-y-3">
-                <Field label="SKU">
-                  <input
-                    name="sku"
-                    value={form.sku}
+                <Field label="Producto">
+                  <select
+                    name="productoId"
+                    value={form.productoId}
                     onChange={handleChange}
-                    placeholder="SKU-001"
                     className="modal-input"
-                    disabled={modoEdicion}
-                    readOnly={modoEdicion}
-                  />
-                </Field>
-
-                <Field label="Nombre del Producto">
-                  <input
-                    name="nombre"
-                    value={form.nombre}
-                    onChange={handleChange}
-                    placeholder="Nombre del producto"
-                    className="modal-input"
-                  />
-                </Field>
-
-                <Field label="Categoría">
-                  <input
-                    name="categoria"
-                    value={form.categoria}
-                    onChange={handleChange}
-                    placeholder="Escribe o selecciona"
-                    className="modal-input"
-                  />
+                  >
+                    <option value="">Selecciona un producto</option>
+                    {productos.map((producto) => (
+                      <option key={producto.id} value={producto.id}>
+                        {producto.nombre} - {producto.sku}
+                      </option>
+                    ))}
+                  </select>
                 </Field>
 
                 <div className="grid grid-cols-2 gap-4">
-                  <Field label="Stock Mínimo">
-                    <div className="relative">
-                      <input
-                        name="minimo"
-                        type="number"
-                        value={10}
-                        readOnly
-                        disabled
-                        className="modal-input modal-input-disabled pr-24"
-                      />
-                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-[#8f95b2] bg-[#f5f2ff] px-2 py-1 rounded-full">
-                        Fijo en 10
-                      </span>
-                    </div>
-                  </Field>
-
-                  <Field label="Stock Máximo">
-                    <input
-                      name="stockMaximo"
-                      type="text"
-                      inputMode="numeric"
-                      value={form.stockMaximo}
+                  <Field label="Tipo de Movimiento">
+                    <select
+                      name="tipo"
+                      value={esOperador ? "SALIDA" : form.tipo}
                       onChange={handleChange}
                       className="modal-input"
+                      disabled={esOperador}
+                    >
+                      {esOperador ? (
+                        <option value="SALIDA">Salida</option>
+                      ) : (
+                        <>
+                          <option value="ENTRADA">Entrada</option>
+                          <option value="SALIDA">Salida</option>
+                        </>
+                      )}
+                    </select>
+                  </Field>
+
+                  <Field label="Cantidad">
+                    <input
+                      name="cantidad"
+                      type="text"
+                      inputMode="numeric"
+                      value={form.cantidad}
+                      onChange={handleChange}
+                      className="modal-input"
+                      placeholder="0"
                     />
                   </Field>
                 </div>
 
-                <div className="grid grid-cols-2 gap-4">
-                  <Field label="Stock">
-                    <input
-                      name="stock"
-                      type="text"
-                      inputMode="numeric"
-                      value={form.stock}
-                      onChange={handleChange}
-                      className="modal-input"
-                      disabled={modoEdicion}
-                      readOnly={modoEdicion}
-                    />
-                  </Field>
-
-                  <Field label="Precio Unitario">
-                    <input
-                      name="precioUnitario"
-                      type="text"
-                      inputMode="numeric"
-                      value={form.precioUnitario}
-                      onChange={handleChange}
-                      className="modal-input"
-                    />
-                  </Field>
-                </div>
-
-                <Field label="Descripción">
-                  <textarea
-                    name="descripcion"
-                    value={form.descripcion}
+                <Field label="Motivo">
+                  <input
+                    name="motivo"
+                    value={form.motivo}
                     onChange={handleChange}
-                    placeholder="Opcional"
-                    rows={3}
-                    className="modal-input modal-textarea resize-none"
+                    className="modal-input"
+                    placeholder="Ej: reposición, venta, ajuste"
                   />
                 </Field>
+
+                {errorMovimiento && (
+                  <div className="rounded-2xl border border-[#fecaca] bg-[#fff1f2] px-4 py-3 text-sm text-[#be123c] leading-5">
+                    {errorMovimiento}
+                  </div>
+                )}
               </div>
 
               <div className="border-t border-[#ece7fb] mt-5 pt-4 flex justify-center gap-3">
@@ -626,59 +575,13 @@ function Inventario() {
                 </button>
 
                 <button
-                  onClick={guardarProducto}
+                  onClick={registrarMovimiento}
                   className="h-10 px-6 rounded-xl bg-[#8f7cf8] text-white font-semibold hover:bg-[#7e69f6] transition"
                   type="button"
                 >
-                  {modoEdicion ? "Guardar Cambios" : "Guardar Producto"}
+                  Guardar Movimiento
                 </button>
               </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {modalEliminar && productoAEliminar && (
-        <div className="fixed inset-0 z-50 bg-black/30 backdrop-blur-[2px] flex items-center justify-center p-4">
-          <div className="w-full max-w-[480px] rounded-[18px] bg-white shadow-[0_20px_60px_rgba(39,33,79,0.18)] border border-[#ece7fb] overflow-hidden">
-            <div className="flex items-center justify-between px-5 py-4 border-b border-[#ece7fb]">
-              <h3 className="text-[18px] font-semibold text-[#20224a]">
-                Confirmar eliminación
-              </h3>
-
-              <button
-                onClick={cerrarEliminar}
-                className="text-[#8f95b2] hover:text-[#20224a] transition"
-                type="button"
-              >
-                <X size={18} />
-              </button>
-            </div>
-
-            <div className="px-5 py-6 text-[#20224a] text-sm leading-6">
-              <p>
-                ¿Eliminar el producto <span className="font-semibold">{productoAEliminar.nombre}</span>{" "}
-                (SKU <span className="font-semibold">{productoAEliminar.sku}</span>)?
-              </p>
-              <p>Esta acción no se puede deshacer.</p>
-            </div>
-
-            <div className="px-5 pb-4 flex justify-end gap-3">
-              <button
-                onClick={cerrarEliminar}
-                className="h-10 px-5 rounded-xl bg-[#eef1f6] text-[#20224a] font-medium hover:bg-[#e6eaf2] transition"
-                type="button"
-              >
-                Cancelar
-              </button>
-
-              <button
-                onClick={eliminarProducto}
-                className="h-10 px-5 rounded-xl bg-[#e11d48] text-white font-semibold hover:bg-[#c81e46] transition"
-                type="button"
-              >
-                Eliminar
-              </button>
             </div>
           </div>
         </div>
@@ -698,7 +601,7 @@ function Inventario() {
             </h3>
 
             <p className="text-[#4b5563] text-[17px] mb-6">
-              Operación completada exitosamente
+              Movimiento registrado exitosamente
             </p>
 
             <button
@@ -709,12 +612,6 @@ function Inventario() {
               Cerrar
             </button>
           </div>
-        </div>
-      )}
-
-      {mensaje && (
-        <div className="fixed right-6 bottom-6 z-[60] rounded-2xl bg-[#20224a] text-white px-5 py-3 shadow-lg">
-          {mensaje}
         </div>
       )}
 
@@ -737,36 +634,21 @@ function Inventario() {
 
         .modal-input:disabled {
           background: #f8f8fc;
-          color: #6b7280;
+          color: #20224a;
           cursor: not-allowed;
-        }
-
-        .modal-input-disabled {
-          background: #f8f8fc;
-          color: #6b7280;
-          cursor: not-allowed;
-        }
-
-        .modal-textarea {
-          height: auto;
-          min-height: 84px;
-          padding-top: 12px;
-          padding-bottom: 12px;
         }
       `}</style>
     </div>
   )
 }
 
-function TabButton({
-  active,
-  onClick,
-  label,
-}: {
+type TabButtonProps = {
   active: boolean
   onClick: () => void
   label: string
-}) {
+}
+
+function TabButton({ active, onClick, label }: TabButtonProps) {
   return (
     <button
       onClick={onClick}
@@ -782,13 +664,12 @@ function TabButton({
   )
 }
 
-function Field({
-  label,
-  children,
-}: {
+type FieldProps = {
   label: string
   children: React.ReactNode
-}) {
+}
+
+function Field({ label, children }: FieldProps) {
   return (
     <div>
       <label className="block text-sm text-[#20224a] mb-2">{label}</label>
@@ -797,4 +678,4 @@ function Field({
   )
 }
 
-export default Inventario
+export default Movimientos
