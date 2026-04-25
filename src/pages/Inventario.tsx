@@ -26,6 +26,7 @@ function Inventario() {
   const [mensaje, setMensaje] = useState("")
   const [busqueda, setBusqueda] = useState("")
   const [filtro, setFiltro] = useState("todos")
+  const [errores, setErrores] = useState<Record<string, string>>({})
 
   const token = localStorage.getItem("token") || ""
   const API_PRODUCTOS = "http://localhost:8080/api/productos"
@@ -40,6 +41,7 @@ function Inventario() {
     stock: "",
     stockMinimo: "",
     stockMaximo: "",
+    descripcion: "",
   })
 
   const getHeaders = () => ({
@@ -121,7 +123,7 @@ function Inventario() {
 
     return productos.filter((producto) => {
       const stock = Number(producto.stock ?? 0)
-      const minimo = Number(producto.stockMinimo ?? 0)
+      const minimo = Number(producto.minimo ?? 0)
       const esCritico = minimo > 0 && stock <= minimo
 
       if (filtro === "normales" && esCritico) return false
@@ -132,20 +134,21 @@ function Inventario() {
       return (
         String(producto.sku || "").toLowerCase().includes(q) ||
         String(producto.nombre || "").toLowerCase().includes(q) ||
-        String(producto.categoria || "").toLowerCase().includes(q)
+        String(producto.categoria || "").toLowerCase().includes(q) ||
+        String(producto.descripcion || "").toLowerCase().includes(q)
       )
     })
   }, [productos, busqueda, filtro])
 
   const productosNormales = productos.filter((p) => {
     const stock = Number(p.stock ?? 0)
-    const minimo = Number(p.stockMinimo ?? 0)
+    const minimo = Number(p.minimo ?? 0)
     return !(minimo > 0 && stock <= minimo)
   }).length
 
   const productosCriticos = productos.filter((p) => {
     const stock = Number(p.stock ?? 0)
-    const minimo = Number(p.stockMinimo ?? 0)
+    const minimo = Number(p.minimo ?? 0)
     return minimo > 0 && stock <= minimo
   }).length
 
@@ -158,7 +161,9 @@ function Inventario() {
       stock: "",
       stockMinimo: "",
       stockMaximo: "",
+      descripcion: "",
     })
+    setErrores({})
     setProductoEditar(null)
   }
 
@@ -169,14 +174,16 @@ function Inventario() {
 
   const abrirEditar = (producto: any) => {
     setProductoEditar(producto)
+    setErrores({})
     setForm({
       sku: String(producto.sku ?? ""),
       nombre: String(producto.nombre ?? ""),
       categoria: String(producto.categoria ?? ""),
       precioUnitario: String(producto.precioUnitario ?? ""),
       stock: String(producto.stock ?? ""),
-      stockMinimo: String(producto.stockMinimo ?? ""),
+      stockMinimo: String(producto.minimo ?? ""),
       stockMaximo: String(producto.stockMaximo ?? ""),
+      descripcion: String(producto.descripcion ?? ""),
     })
     setModal(true)
   }
@@ -186,8 +193,20 @@ function Inventario() {
     limpiarFormulario()
   }
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const limpiarErrorCampo = (name: string) => {
+    setErrores((prev) => {
+      if (!prev[name]) return prev
+      const copia = { ...prev }
+      delete copia[name]
+      return copia
+    })
+  }
+
+  const handleChange = (
+    e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>
+  ) => {
     const { name, value } = e.target
+    limpiarErrorCampo(name)
 
     if (
       name === "precioUnitario" ||
@@ -204,47 +223,67 @@ function Inventario() {
   }
 
   const validarFormulario = () => {
+    const nuevosErrores: Record<string, string> = {}
+
     if (!form.sku.trim()) {
-      setMensaje("Ingrese el SKU del producto")
-      return false
+      nuevosErrores.sku = "Este campo es obligatorio."
     }
 
     if (!form.nombre.trim()) {
-      setMensaje("Ingrese el nombre del producto")
-      return false
+      nuevosErrores.nombre = "Este campo es obligatorio."
     }
 
     if (!form.categoria.trim()) {
-      setMensaje("Ingrese la categoría del producto")
-      return false
+      nuevosErrores.categoria = "Este campo es obligatorio."
+    }
+
+    if (!form.stockMinimo.trim()) {
+      nuevosErrores.stockMinimo = "Este campo es obligatorio."
+    }
+
+    if (!form.stockMaximo.trim()) {
+      nuevosErrores.stockMaximo = "Este campo es obligatorio."
+    }
+
+    if (!form.stock.trim()) {
+      nuevosErrores.stock = "Este campo es obligatorio."
+    }
+
+    if (!form.precioUnitario.trim()) {
+      nuevosErrores.precioUnitario = "Este campo es obligatorio."
     }
 
     const stock = Number(form.stock || 0)
-    const stockMinimo = Number(form.stockMinimo || 0)
+    const minimo = Number(form.stockMinimo || 0)
     const stockMaximo = Number(form.stockMaximo || 0)
     const precioUnitario = Number(form.precioUnitario || 0)
 
-    if (precioUnitario <= 0) {
-      setMensaje("Ingrese un valor unitario válido")
-      return false
+    if (form.precioUnitario.trim() && precioUnitario <= 0) {
+      nuevosErrores.precioUnitario = "Ingrese un valor unitario válido."
     }
 
-    if (stock < 0 || stockMinimo < 0 || stockMaximo < 0) {
-      setMensaje("Los valores de stock no pueden ser negativos")
-      return false
+    if (stock < 0) {
+      nuevosErrores.stock = "El stock no puede ser negativo."
     }
 
-    if (stockMaximo > 0 && stockMinimo > stockMaximo) {
-      setMensaje("El stock mínimo no puede ser mayor que el stock máximo")
-      return false
+    if (minimo < 0) {
+      nuevosErrores.stockMinimo = "El stock mínimo no puede ser negativo."
     }
 
-    if (stockMaximo > 0 && stock > stockMaximo) {
-      setMensaje("El stock actual no puede superar el stock máximo")
-      return false
+    if (stockMaximo < 0) {
+      nuevosErrores.stockMaximo = "El stock máximo no puede ser negativo."
     }
 
-    return true
+    if (form.stockMinimo.trim() && form.stockMaximo.trim() && minimo > stockMaximo) {
+      nuevosErrores.stockMinimo = "El stock mínimo no puede ser mayor que el stock máximo."
+    }
+
+    if (form.stock.trim() && form.stockMaximo.trim() && stock > stockMaximo) {
+      nuevosErrores.stock = "El stock actual no puede superar el stock máximo."
+    }
+
+    setErrores(nuevosErrores)
+    return Object.keys(nuevosErrores).length === 0
   }
 
   const guardarProducto = async () => {
@@ -257,8 +296,9 @@ function Inventario() {
         categoria: form.categoria.trim(),
         precioUnitario: Number(form.precioUnitario || 0),
         stock: Number(form.stock || 0),
-        stockMinimo: Number(form.stockMinimo || 0),
+        minimo: Number(form.stockMinimo || 0),
         stockMaximo: Number(form.stockMaximo || 0),
+        descripcion: form.descripcion.trim(),
       }
 
       if (productoEditar?.id) {
@@ -334,8 +374,9 @@ function Inventario() {
           <td>${p.sku || ""}</td>
           <td>${p.nombre || ""}</td>
           <td>${p.categoria || ""}</td>
+          <td>${p.descripcion || ""}</td>
           <td>${stock}</td>
-          <td>${p.stockMinimo ?? 0}</td>
+          <td>${p.minimo ?? 0}</td>
           <td>${p.stockMaximo ?? 0}</td>
           <td>${precio}</td>
           <td>${stock * precio}</td>
@@ -351,7 +392,7 @@ function Inventario() {
         <body>
           <table>
             <tr>
-              <td colspan="8"><b>NEXSTOCK - REPORTE DE INVENTARIO</b></td>
+              <td colspan="9"><b>NEXSTOCK - REPORTE DE INVENTARIO</b></td>
             </tr>
             <tr>
               <td colspan="2">Fecha de generación:</td>
@@ -362,6 +403,7 @@ function Inventario() {
               <td>SKU</td>
               <td>Nombre</td>
               <td>Categoría</td>
+              <td>Descripción</td>
               <td>Stock Actual</td>
               <td>Mínimo</td>
               <td>Máximo</td>
@@ -371,7 +413,7 @@ function Inventario() {
             ${filas}
             <tr></tr>
             <tr>
-              <td colspan="6"></td>
+              <td colspan="7"></td>
               <td><b>Total Inventario</b></td>
               <td><b>${valorTotalInventario}</b></td>
             </tr>
@@ -419,7 +461,7 @@ function Inventario() {
         p.nombre || "",
         p.categoria || "",
         stock,
-        p.stockMinimo ?? 0,
+        p.minimo ?? 0,
         p.stockMaximo ?? 0,
         formatoMoneda(precio),
         formatoMoneda(stock * precio),
@@ -599,7 +641,7 @@ function Inventario() {
           ) : (
             productosFiltrados.map((producto) => {
               const stock = Number(producto.stock || 0)
-              const minimo = Number(producto.stockMinimo || 0)
+              const minimo = Number(producto.minimo || 0)
               const maximo = Number(producto.stockMaximo || 0)
               const critico = minimo > 0 && stock <= minimo
               const porcentaje = maximo > 0 ? Math.min((stock / maximo) * 100, 100) : 0
@@ -618,7 +660,10 @@ function Inventario() {
                       <Package size={17} />
                     </div>
                     <div className="min-w-0">
-                      <div className="font-semibold inventario-title truncate">
+                      <div
+                        className="font-semibold inventario-title truncate cursor-help"
+                        title={producto.descripcion || "Sin descripción"}
+                      >
                         {producto.nombre}
                       </div>
                       <div className="text-xs inventario-muted">
@@ -698,11 +743,11 @@ function Inventario() {
 
       {modal && (
         <div className="fixed inset-0 z-50 bg-black/30 backdrop-blur-[2px] flex items-center justify-center p-4">
-          <div className="w-full max-w-[680px] rounded-[26px] inventario-modal shadow-[0_20px_60px_rgba(39,33,79,0.18)] border overflow-hidden">
-            <div className="relative px-6 pt-5 pb-2">
+          <div className="w-full max-w-[620px] rounded-[22px] inventario-modal shadow-[0_20px_60px_rgba(39,33,79,0.18)] border overflow-hidden">
+            <div className="relative px-6 pt-3 pb-1">
               <button
                 onClick={cerrarModal}
-                className="absolute right-5 top-5 inventario-muted hover:opacity-80 transition"
+                className="absolute right-5 top-4 inventario-muted hover:opacity-80 transition"
                 type="button"
               >
                 <X size={18} />
@@ -713,84 +758,98 @@ function Inventario() {
                   {productoEditar ? "Editar Producto" : "Nuevo Producto"}
                 </h2>
                 <p className="inventario-muted text-sm mt-2">
-                  Registra la información del producto en inventario
+                  Complete la información del producto
                 </p>
               </div>
             </div>
 
-            <div className="px-6 pb-5">
-              <div className="grid grid-cols-2 gap-4">
-                <Field label="SKU">
+            <div className="px-6 pb-3">
+              <div className="space-y-3">
+                <Field label="SKU" error={errores.sku}>
                   <input
                     name="sku"
                     value={form.sku}
                     onChange={handleChange}
-                    className="modal-input"
-                    placeholder="Ej: SKU-001"
+                    className={`modal-input ${errores.sku ? "modal-error" : ""}`}
+                    placeholder="SKU-001"
                   />
                 </Field>
 
-                <Field label="Nombre del producto">
+                <Field label="Nombre del Producto" error={errores.nombre}>
                   <input
                     name="nombre"
                     value={form.nombre}
                     onChange={handleChange}
-                    className="modal-input"
-                    placeholder="Ej: Laptop Lenovo"
+                    className={`modal-input ${errores.nombre ? "modal-error" : ""}`}
+                    placeholder="Nombre del producto"
                   />
                 </Field>
 
-                <Field label="Categoría">
+                <Field label="Categoría" error={errores.categoria}>
                   <input
                     name="categoria"
                     value={form.categoria}
                     onChange={handleChange}
-                    className="modal-input"
-                    placeholder="Ej: Electrónica"
+                    className={`modal-input ${errores.categoria ? "modal-error" : ""}`}
+                    placeholder="Escribe o selecciona"
                   />
                 </Field>
 
-                <Field label="Valor unitario">
-                  <input
-                    name="precioUnitario"
-                    value={form.precioUnitario}
-                    onChange={handleChange}
-                    className="modal-input"
-                    placeholder="Ej: 210000"
-                    inputMode="numeric"
-                  />
-                </Field>
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="Stock Mínimo" error={errores.stockMinimo}>
+                    <input
+                      name="stockMinimo"
+                      value={form.stockMinimo}
+                      onChange={handleChange}
+                      className={`modal-input ${errores.stockMinimo ? "modal-error" : ""}`}
+                      placeholder="10"
+                      inputMode="numeric"
+                    />
+                  </Field>
 
-                <Field label="Stock actual">
-                  <input
-                    name="stock"
-                    value={form.stock}
-                    onChange={handleChange}
-                    className="modal-input"
-                    placeholder="Ej: 20"
-                    inputMode="numeric"
-                  />
-                </Field>
+                  <Field label="Stock Máximo" error={errores.stockMaximo}>
+                    <input
+                      name="stockMaximo"
+                      value={form.stockMaximo}
+                      onChange={handleChange}
+                      className={`modal-input ${errores.stockMaximo ? "modal-error" : ""}`}
+                      placeholder="100"
+                      inputMode="numeric"
+                    />
+                  </Field>
+                </div>
 
-                <Field label="Stock mínimo">
-                  <input
-                    name="stockMinimo"
-                    value={form.stockMinimo}
-                    onChange={handleChange}
-                    className="modal-input"
-                    placeholder="Ej: 10"
-                    inputMode="numeric"
-                  />
-                </Field>
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="Stock" error={errores.stock}>
+                    <input
+                      name="stock"
+                      value={form.stock}
+                      onChange={handleChange}
+                      className={`modal-input ${errores.stock ? "modal-error" : ""}`}
+                      placeholder="20"
+                      inputMode="numeric"
+                    />
+                  </Field>
 
-                <Field label="Stock máximo">
-                  <input
-                    name="stockMaximo"
-                    value={form.stockMaximo}
+                  <Field label="Precio Unitario" error={errores.precioUnitario}>
+                    <input
+                      name="precioUnitario"
+                      value={form.precioUnitario}
+                      onChange={handleChange}
+                      className={`modal-input ${errores.precioUnitario ? "modal-error" : ""}`}
+                      placeholder="210000"
+                      inputMode="numeric"
+                    />
+                  </Field>
+                </div>
+
+                <Field label="Descripción">
+                  <textarea
+                    name="descripcion"
+                    value={form.descripcion}
                     onChange={handleChange}
-                    className="modal-input"
-                    placeholder="Ej: 100"
-                    inputMode="numeric"
+                    className="modal-textarea"
+                    placeholder="Opcional"
                   />
                 </Field>
               </div>
@@ -809,7 +868,7 @@ function Inventario() {
                   className="h-10 px-6 rounded-xl inventario-primary-button text-white font-semibold transition"
                   type="button"
                 >
-                  {productoEditar ? "Guardar Cambios" : "Crear Producto"}
+                  {productoEditar ? "Guardar Cambios" : "Guardar Producto"}
                 </button>
               </div>
             </div>
@@ -888,7 +947,8 @@ function Inventario() {
         }
 
         .inventario-input:focus,
-        .modal-input:focus {
+        .modal-input:focus,
+        .modal-textarea:focus {
           border-color: var(--inv-primary);
           box-shadow: 0 0 0 3px color-mix(in srgb, var(--inv-primary) 18%, transparent);
         }
@@ -968,7 +1028,7 @@ function Inventario() {
 
         .modal-input {
           width: 100%;
-          height: 44px;
+          height: 40px;
           border: 1px solid var(--inv-border);
           border-radius: 12px;
           padding: 0 14px;
@@ -977,8 +1037,33 @@ function Inventario() {
           background: var(--inv-input);
         }
 
-        .modal-input::placeholder {
+        .modal-textarea {
+          width: 100%;
+          min-height: 86px;
+          border: 1px solid var(--inv-border);
+          border-radius: 12px;
+          padding: 12px 14px;
+          outline: none;
+          color: var(--inv-text);
+          background: var(--inv-input);
+          resize: none;
+        }
+
+        .modal-input::placeholder,
+        .modal-textarea::placeholder {
           color: var(--inv-muted);
+        }
+
+        .modal-error {
+          border-color: #ef4444 !important;
+          box-shadow: 0 0 0 3px rgba(239, 68, 68, 0.14);
+        }
+
+        .field-error-text {
+          color: #ef4444;
+          font-size: 12px;
+          margin-top: 5px;
+          line-height: 1.2;
         }
       `}</style>
     </div>
@@ -1030,13 +1115,15 @@ function TabButton({ active, onClick, label }: TabButtonProps) {
 type FieldProps = {
   label: string
   children: React.ReactNode
+  error?: string
 }
 
-function Field({ label, children }: FieldProps) {
+function Field({ label, children, error }: FieldProps) {
   return (
     <div>
       <label className="block text-sm inventario-title mb-2">{label}</label>
       {children}
+      {error && <p className="field-error-text">{error}</p>}
     </div>
   )
 }
