@@ -1,35 +1,50 @@
 import { useEffect, useMemo, useState } from "react"
 import axios from "axios"
+import jsPDF from "jspdf"
+import autoTable from "jspdf-autotable"
 import {
   Bell,
   Search,
   Plus,
   X,
-  ArrowDownLeft,
-  ArrowUpRight,
-  Check,
+  Package,
+  Pencil,
+  Trash2,
+  FileSpreadsheet,
+  FileText,
 } from "lucide-react"
 import { useNavigate } from "react-router-dom"
 import { useAppTheme } from "../theme/AppThemeContext"
 
-function Movimientos() {
-  const [movimientos, setMovimientos] = useState<any[]>([])
+function Inventario() {
   const [productos, setProductos] = useState<any[]>([])
   const [cargando, setCargando] = useState(true)
-  const [cargandoMas, setCargandoMas] = useState(false)
   const [modal, setModal] = useState(false)
-  const [modalExito, setModalExito] = useState(false)
+  const [modalEliminar, setModalEliminar] = useState(false)
+  const [productoEditar, setProductoEditar] = useState<any | null>(null)
+  const [productoEliminar, setProductoEliminar] = useState<any | null>(null)
   const [mensaje, setMensaje] = useState("")
-  const [errorMovimiento, setErrorMovimiento] = useState("")
+  const [busqueda, setBusqueda] = useState("")
   const [filtro, setFiltro] = useState("todos")
-  const [page, setPage] = useState(0)
-  const [hayMas, setHayMas] = useState(true)
 
   const token = localStorage.getItem("token") || ""
-  const API_MOVIMIENTOS = "http://localhost:8080/api/movimientos"
   const API_PRODUCTOS = "http://localhost:8080/api/productos"
   const navigate = useNavigate()
   const { theme } = useAppTheme()
+
+  const [form, setForm] = useState({
+    sku: "",
+    nombre: "",
+    categoria: "",
+    precioUnitario: "",
+    stock: "",
+    stockMinimo: "",
+    stockMaximo: "",
+  })
+
+  const getHeaders = () => ({
+    Authorization: `Bearer ${token}`,
+  })
 
   const decodeJwt = (jwt: string) => {
     try {
@@ -56,94 +71,38 @@ function Movimientos() {
       []
 
     if (Array.isArray(rawRoles)) {
-      return rawRoles.map((r) => String(r).toUpperCase())
+      return rawRoles.map((r) => String(r).replace(/^ROLE_/, "").toUpperCase())
     }
 
     if (typeof rawRoles === "string") {
       return rawRoles
         .split(/[,\s]+/)
         .filter(Boolean)
-        .map((r) => r.toUpperCase())
+        .map((r) => r.replace(/^ROLE_/, "").toUpperCase())
     }
 
     return []
   }, [payload])
 
-  const esSuperAdmin = roles.includes("SUPER_ADMIN") || roles.includes("ROLE_SUPER_ADMIN")
-  const esAdmin = roles.includes("ADMIN") || roles.includes("ROLE_ADMIN")
-  const esSupervisor = roles.includes("SUPERVISOR") || roles.includes("ROLE_SUPERVISOR")
-  const esOperador = roles.includes("OPERADOR") || roles.includes("ROLE_OPERADOR")
-
-  const puedeRegistrarMovimiento =
-    roles.length === 0 || esSuperAdmin || esAdmin || esSupervisor || esOperador
-
+  const esSuperAdmin = roles.includes("SUPER_ADMIN")
+  const esAdmin = roles.includes("ADMIN")
+  const esSupervisor = roles.includes("SUPERVISOR")
+  const puedeGestionar = esSuperAdmin || esAdmin
   const puedeVerAlertas = esSuperAdmin || esAdmin || esSupervisor
-
-  const [form, setForm] = useState({
-    productoId: "",
-    tipo: esOperador ? "SALIDA" : "ENTRADA",
-    cantidad: "",
-    motivo: "",
-  })
-
-  const getHeaders = () => ({
-    Authorization: `Bearer ${token}`,
-  })
 
   const cargarProductos = async () => {
     try {
+      setCargando(true)
       const res = await axios.get(API_PRODUCTOS, {
         headers: getHeaders(),
       })
       setProductos(Array.isArray(res.data) ? res.data : [])
     } catch (error) {
       console.log(error)
-    }
-  }
-
-  const cargarMovimientos = async (
-    pageValue: number,
-    reset: boolean,
-    filtroActual: string
-  ) => {
-    try {
-      if (pageValue === 0) {
-        setCargando(true)
-      } else {
-        setCargandoMas(true)
-      }
-
-      const params: any = {
-        page: pageValue,
-        size: 8,
-        sort: "fecha,desc",
-      }
-
-      if (filtroActual === "entradas") params.tipo = "ENTRADA"
-      if (filtroActual === "salidas") params.tipo = "SALIDA"
-
-      const res = await axios.get(API_MOVIMIENTOS, {
-        headers: getHeaders(),
-        params,
-      })
-
-      const content = Array.isArray(res.data?.content) ? res.data.content : []
-      const last = Boolean(res.data?.last)
-
-      if (reset) {
-        setMovimientos(content)
-      } else {
-        setMovimientos((prev) => [...prev, ...content])
-      }
-
-      setHayMas(!last)
-    } catch (error) {
-      console.log(error)
-      if (reset) setMovimientos([])
-      setHayMas(false)
+      setProductos([])
+      setMensaje("No se pudieron cargar los productos")
     } finally {
       setCargando(false)
-      setCargandoMas(false)
     }
   }
 
@@ -152,57 +111,74 @@ function Movimientos() {
   }, [])
 
   useEffect(() => {
-    setPage(0)
-    cargarMovimientos(0, true, filtro)
-  }, [filtro])
-
-  useEffect(() => {
     if (!mensaje) return
-    const timer = setTimeout(() => setMensaje(""), 2500)
+    const timer = setTimeout(() => setMensaje(""), 3000)
     return () => clearTimeout(timer)
   }, [mensaje])
 
-  const cargarMas = async () => {
-    const nextPage = page + 1
-    setPage(nextPage)
-    await cargarMovimientos(nextPage, false, filtro)
-  }
+  const productosFiltrados = useMemo(() => {
+    const q = busqueda.trim().toLowerCase()
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
-    const { name, value } = e.target
-    setErrorMovimiento("")
+    return productos.filter((producto) => {
+      const stock = Number(producto.stock ?? 0)
+      const minimo = Number(producto.stockMinimo ?? 0)
+      const esCritico = minimo > 0 && stock <= minimo
 
-    if (name === "cantidad") {
-      const soloNumeros = value.replace(/[^\d]/g, "")
-      setForm((prev) => ({
-        ...prev,
-        [name]: soloNumeros,
-      }))
-      return
-    }
+      if (filtro === "normales" && esCritico) return false
+      if (filtro === "criticos" && !esCritico) return false
 
-    if (name === "tipo" && esOperador) {
-      setForm((prev) => ({
-        ...prev,
-        tipo: "SALIDA",
-      }))
-      return
-    }
+      if (!q) return true
 
-    setForm((prev) => ({
-      ...prev,
-      [name]: value,
-    }))
-  }
+      return (
+        String(producto.sku || "").toLowerCase().includes(q) ||
+        String(producto.nombre || "").toLowerCase().includes(q) ||
+        String(producto.categoria || "").toLowerCase().includes(q)
+      )
+    })
+  }, [productos, busqueda, filtro])
+
+  const productosNormales = productos.filter((p) => {
+    const stock = Number(p.stock ?? 0)
+    const minimo = Number(p.stockMinimo ?? 0)
+    return !(minimo > 0 && stock <= minimo)
+  }).length
+
+  const productosCriticos = productos.filter((p) => {
+    const stock = Number(p.stock ?? 0)
+    const minimo = Number(p.stockMinimo ?? 0)
+    return minimo > 0 && stock <= minimo
+  }).length
 
   const limpiarFormulario = () => {
     setForm({
-      productoId: "",
-      tipo: esOperador ? "SALIDA" : "ENTRADA",
-      cantidad: "",
-      motivo: "",
+      sku: "",
+      nombre: "",
+      categoria: "",
+      precioUnitario: "",
+      stock: "",
+      stockMinimo: "",
+      stockMaximo: "",
     })
-    setErrorMovimiento("")
+    setProductoEditar(null)
+  }
+
+  const abrirNuevo = () => {
+    limpiarFormulario()
+    setModal(true)
+  }
+
+  const abrirEditar = (producto: any) => {
+    setProductoEditar(producto)
+    setForm({
+      sku: String(producto.sku ?? ""),
+      nombre: String(producto.nombre ?? ""),
+      categoria: String(producto.categoria ?? ""),
+      precioUnitario: String(producto.precioUnitario ?? ""),
+      stock: String(producto.stock ?? ""),
+      stockMinimo: String(producto.stockMinimo ?? ""),
+      stockMaximo: String(producto.stockMaximo ?? ""),
+    })
+    setModal(true)
   }
 
   const cerrarModal = () => {
@@ -210,173 +186,348 @@ function Movimientos() {
     limpiarFormulario()
   }
 
-  const abrirModal = () => {
-    limpiarFormulario()
-    setModal(true)
-  }
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const { name, value } = e.target
 
-  const obtenerProductoSeleccionado = () => {
-    return productos.find((p) => String(p.id) === String(form.productoId))
-  }
-
-  const obtenerMensajeBackend = (error: any) => {
-    const data = error?.response?.data
-
-    if (typeof data === "string") return data
-
-    if (data && typeof data === "object") {
-      return String(
-        data.error ||
-          data.message ||
-          data.mensaje ||
-          data.detail ||
-          "La operación no pudo completarse. Revise la cantidad ingresada y los límites de stock del producto."
-      )
+    if (
+      name === "precioUnitario" ||
+      name === "stock" ||
+      name === "stockMinimo" ||
+      name === "stockMaximo"
+    ) {
+      const limpio = value.replace(/[^\d]/g, "")
+      setForm((prev) => ({ ...prev, [name]: limpio }))
+      return
     }
 
-    return "La operación no pudo completarse. Revise la cantidad ingresada y los límites de stock del producto."
+    setForm((prev) => ({ ...prev, [name]: value }))
   }
 
-  const validarMovimientoEnFrontend = () => {
-    const productoSeleccionado = obtenerProductoSeleccionado()
-    const tipoFinal = esOperador ? "SALIDA" : form.tipo
-    const cantidad = form.cantidad === "" ? 0 : Number(form.cantidad)
-
-    if (!productoSeleccionado) {
-      setErrorMovimiento("Seleccione un producto antes de registrar el movimiento.")
+  const validarFormulario = () => {
+    if (!form.sku.trim()) {
+      setMensaje("Ingrese el SKU del producto")
       return false
     }
 
-    if (!cantidad || cantidad <= 0) {
-      setErrorMovimiento("Ingrese una cantidad válida mayor que cero.")
+    if (!form.nombre.trim()) {
+      setMensaje("Ingrese el nombre del producto")
       return false
     }
 
-    const stockActual = Number(productoSeleccionado.stock ?? 0)
-    const stockMaximo = Number(productoSeleccionado.stockMaximo ?? 0)
-
-    if (tipoFinal === "SALIDA" && cantidad > stockActual) {
-      setErrorMovimiento(
-        `No se puede registrar la salida. Está intentando retirar ${cantidad} unidad(es), pero el stock disponible es de ${stockActual} unidad(es).`
-      )
+    if (!form.categoria.trim()) {
+      setMensaje("Ingrese la categoría del producto")
       return false
     }
 
-    if (tipoFinal === "ENTRADA" && stockMaximo > 0 && stockActual + cantidad > stockMaximo) {
-      const disponible = Math.max(stockMaximo - stockActual, 0)
-      setErrorMovimiento(
-        `No se puede registrar la entrada. El stock actual es ${stockActual}, el stock máximo permitido es ${stockMaximo} y solo puede ingresar ${disponible} unidad(es).`
-      )
+    const stock = Number(form.stock || 0)
+    const stockMinimo = Number(form.stockMinimo || 0)
+    const stockMaximo = Number(form.stockMaximo || 0)
+    const precioUnitario = Number(form.precioUnitario || 0)
+
+    if (precioUnitario <= 0) {
+      setMensaje("Ingrese un valor unitario válido")
+      return false
+    }
+
+    if (stock < 0 || stockMinimo < 0 || stockMaximo < 0) {
+      setMensaje("Los valores de stock no pueden ser negativos")
+      return false
+    }
+
+    if (stockMaximo > 0 && stockMinimo > stockMaximo) {
+      setMensaje("El stock mínimo no puede ser mayor que el stock máximo")
+      return false
+    }
+
+    if (stockMaximo > 0 && stock > stockMaximo) {
+      setMensaje("El stock actual no puede superar el stock máximo")
       return false
     }
 
     return true
   }
 
-  const registrarMovimiento = async () => {
-    setErrorMovimiento("")
-
-    if (!validarMovimientoEnFrontend()) return
+  const guardarProducto = async () => {
+    if (!validarFormulario()) return
 
     try {
-      const productoSeleccionado = obtenerProductoSeleccionado()
-      const tipoFinal = esOperador ? "SALIDA" : form.tipo
-
-      const payloadMovimiento = {
-        productoId: form.productoId,
-        sku: productoSeleccionado?.sku || "",
-        productoNombre: productoSeleccionado?.nombre || "",
-        tipo: tipoFinal,
-        cantidad: form.cantidad === "" ? 0 : Number(form.cantidad),
-        motivo: form.motivo,
+      const data = {
+        sku: form.sku.trim(),
+        nombre: form.nombre.trim(),
+        categoria: form.categoria.trim(),
+        precioUnitario: Number(form.precioUnitario || 0),
+        stock: Number(form.stock || 0),
+        stockMinimo: Number(form.stockMinimo || 0),
+        stockMaximo: Number(form.stockMaximo || 0),
       }
 
-      await axios.post(API_MOVIMIENTOS, payloadMovimiento, {
-        headers: getHeaders(),
-      })
+      if (productoEditar?.id) {
+        await axios.put(`${API_PRODUCTOS}/${productoEditar.id}`, data, {
+          headers: getHeaders(),
+        })
+        setMensaje("Producto actualizado correctamente")
+      } else {
+        await axios.post(API_PRODUCTOS, data, {
+          headers: getHeaders(),
+        })
+        setMensaje("Producto creado correctamente")
+      }
 
       cerrarModal()
-      setPage(0)
-      await cargarMovimientos(0, true, filtro)
       await cargarProductos()
-      setModalExito(true)
-    } catch (error) {
+    } catch (error: any) {
       console.log(error)
-      setErrorMovimiento(obtenerMensajeBackend(error))
+      const msg =
+        error?.response?.data?.error ||
+        error?.response?.data?.message ||
+        "No se pudo guardar el producto"
+      setMensaje(String(msg))
     }
   }
 
-  const formatearFecha = (fecha: any) => {
-    if (!fecha) return "-"
-    const f = new Date(fecha)
-    if (isNaN(f.getTime())) return String(fecha)
+  const confirmarEliminar = (producto: any) => {
+    setProductoEliminar(producto)
+    setModalEliminar(true)
+  }
 
-    return f.toLocaleString("es-CO", {
-      year: "numeric",
-      month: "2-digit",
-      day: "2-digit",
-      hour: "2-digit",
-      minute: "2-digit",
-      hour12: false,
+  const eliminarProducto = async () => {
+    if (!productoEliminar?.id) return
+
+    try {
+      await axios.delete(`${API_PRODUCTOS}/${productoEliminar.id}`, {
+        headers: getHeaders(),
+      })
+      setModalEliminar(false)
+      setProductoEliminar(null)
+      setMensaje("Producto eliminado correctamente")
+      await cargarProductos()
+    } catch (error: any) {
+      console.log(error)
+      const msg =
+        error?.response?.data?.error ||
+        error?.response?.data?.message ||
+        "No se pudo eliminar el producto"
+      setMensaje(String(msg))
+    }
+  }
+
+  const formatoMoneda = (valor: any) => {
+    const numero = Number(valor || 0)
+    return numero.toLocaleString("es-CO", {
+      style: "currency",
+      currency: "COP",
+      minimumFractionDigits: 0,
     })
   }
 
-  const normalizarTipo = (tipo: any) => {
-    const t = String(tipo || "").toUpperCase()
-    if (t.includes("ENTRADA")) return "ENTRADA"
-    if (t.includes("SALIDA")) return "SALIDA"
-    return "MOVIMIENTO"
+  const valorTotalInventario = productos.reduce((acc, p) => {
+    return acc + Number(p.stock || 0) * Number(p.precioUnitario || 0)
+  }, 0)
+
+  const exportarExcel = () => {
+    const filas = productos.map((p) => {
+      const stock = Number(p.stock || 0)
+      const precio = Number(p.precioUnitario || 0)
+
+      return `
+        <tr>
+          <td>${p.sku || ""}</td>
+          <td>${p.nombre || ""}</td>
+          <td>${p.categoria || ""}</td>
+          <td>${stock}</td>
+          <td>${p.stockMinimo ?? 0}</td>
+          <td>${p.stockMaximo ?? 0}</td>
+          <td>${precio}</td>
+          <td>${stock * precio}</td>
+        </tr>
+      `
+    }).join("")
+
+    const html = `
+      <html>
+        <head>
+          <meta charset="UTF-8" />
+        </head>
+        <body>
+          <table>
+            <tr>
+              <td colspan="8"><b>NEXSTOCK - REPORTE DE INVENTARIO</b></td>
+            </tr>
+            <tr>
+              <td colspan="2">Fecha de generación:</td>
+              <td>${new Date().toLocaleString("es-CO")}</td>
+            </tr>
+            <tr></tr>
+            <tr style="background:#0f6fc6;color:white;font-weight:bold;">
+              <td>SKU</td>
+              <td>Nombre</td>
+              <td>Categoría</td>
+              <td>Stock Actual</td>
+              <td>Mínimo</td>
+              <td>Máximo</td>
+              <td>Precio Unitario</td>
+              <td>Valor Total</td>
+            </tr>
+            ${filas}
+            <tr></tr>
+            <tr>
+              <td colspan="6"></td>
+              <td><b>Total Inventario</b></td>
+              <td><b>${valorTotalInventario}</b></td>
+            </tr>
+          </table>
+        </body>
+      </html>
+    `
+
+    const blob = new Blob([html], {
+      type: "application/vnd.ms-excel;charset=utf-8;",
+    })
+
+    const url = URL.createObjectURL(blob)
+    const link = document.createElement("a")
+    link.href = url
+    link.download = "reporte-inventario.xls"
+    link.click()
+    URL.revokeObjectURL(url)
+  }
+
+  const exportarPDF = () => {
+    const doc = new jsPDF({
+      orientation: "landscape",
+      unit: "pt",
+      format: "a4",
+    })
+
+    const fecha = new Date().toLocaleString("es-CO")
+
+    doc.setFont("helvetica", "bold")
+    doc.setFontSize(22)
+    doc.text("NEXSTOCK", 40, 45)
+
+    doc.setFont("helvetica", "normal")
+    doc.setFontSize(10)
+    doc.text("Sistema de Control de Inventario", 40, 62)
+    doc.text(`Fecha de generación: ${fecha}`, 40, 78)
+
+    const filas = productos.map((p) => {
+      const stock = Number(p.stock || 0)
+      const precio = Number(p.precioUnitario || 0)
+
+      return [
+        p.sku || "",
+        p.nombre || "",
+        p.categoria || "",
+        stock,
+        p.stockMinimo ?? 0,
+        p.stockMaximo ?? 0,
+        formatoMoneda(precio),
+        formatoMoneda(stock * precio),
+      ]
+    })
+
+    autoTable(doc, {
+      startY: 110,
+      head: [[
+        "SKU",
+        "Nombre",
+        "Categoría",
+        "Stock",
+        "Mín.",
+        "Máx.",
+        "Valor Unitario",
+        "Valor Total",
+      ]],
+      body: filas,
+      theme: "grid",
+      styles: {
+        fontSize: 9,
+        cellPadding: 5,
+        textColor: [17, 24, 39],
+        lineColor: [40, 40, 40],
+        lineWidth: 0.4,
+      },
+      headStyles: {
+        fillColor: [124, 101, 246],
+        textColor: [255, 255, 255],
+        halign: "center",
+        fontStyle: "bold",
+      },
+      columnStyles: {
+        0: { cellWidth: 70 },
+        1: { cellWidth: 170 },
+        2: { cellWidth: 100 },
+        3: { cellWidth: 55, halign: "center" },
+        4: { cellWidth: 55, halign: "center" },
+        5: { cellWidth: 55, halign: "center" },
+        6: { cellWidth: 100 },
+        7: { cellWidth: 100 },
+      },
+    })
+
+    const finalY = (doc as any).lastAutoTable?.finalY || 110
+
+    doc.setFont("helvetica", "bold")
+    doc.setFontSize(12)
+    doc.text(
+      `Valor total del inventario: ${formatoMoneda(valorTotalInventario)}`,
+      560,
+      finalY + 35
+    )
+
+    doc.setFont("helvetica", "italic")
+    doc.setFontSize(9)
+    doc.setTextColor(120)
+    doc.text("Nexstock © - Reporte generado automáticamente", 335, finalY + 70)
+
+    doc.save("reporte-inventario.pdf")
   }
 
   return (
     <div
-      className="mov-page"
+      className="inventario-page"
       style={
         {
-          "--mov-page": theme.page,
-          "--mov-card": theme.card,
-          "--mov-panel": theme.panel,
-          "--mov-input": theme.input,
-          "--mov-text": theme.text,
-          "--mov-muted": theme.muted,
-          "--mov-border": theme.border,
-          "--mov-selected": theme.selected,
-          "--mov-primary": theme.primary,
-          "--mov-primary-hover": theme.primaryHover,
-          "--mov-button-dark": theme.buttonDark,
+          "--inv-page": theme.page,
+          "--inv-card": theme.card,
+          "--inv-panel": theme.panel,
+          "--inv-input": theme.input,
+          "--inv-text": theme.text,
+          "--inv-muted": theme.muted,
+          "--inv-border": theme.border,
+          "--inv-selected": theme.selected,
+          "--inv-primary": theme.primary,
+          "--inv-primary-hover": theme.primaryHover,
+          "--inv-button-dark": theme.buttonDark,
         } as React.CSSProperties
       }
     >
       <div className="flex items-center justify-between mb-5">
         <div>
-          <div className="flex items-center gap-2 mb-1">
-            <ArrowUpRight size={18} className="mov-primary-icon" />
-            <h1 className="text-[32px] font-bold mov-title leading-none">
-              Registro de Movimientos
-            </h1>
-          </div>
-          <p className="mov-muted text-sm">
-            Historial de entradas y salidas de productos
-          </p>
+          <h1 className="text-[32px] font-bold inventario-title leading-none">
+            Gestión de Inventario
+          </h1>
         </div>
 
         <div className="flex items-center gap-4">
           <div className="relative">
             <Search
               size={16}
-              className="absolute left-4 top-1/2 -translate-y-1/2 mov-muted-icon"
+              className="absolute left-4 top-1/2 -translate-y-1/2 inventario-muted-icon"
             />
             <input
               type="text"
               placeholder="Buscar..."
-              className="mov-input w-[220px] h-11 rounded-2xl border pl-10 pr-4 text-sm outline-none"
+              value={busqueda}
+              onChange={(e) => setBusqueda(e.target.value)}
+              className="inventario-input w-[220px] h-11 rounded-2xl border pl-10 pr-4 text-sm outline-none"
             />
           </div>
 
           {puedeVerAlertas && (
             <button
               onClick={() => navigate("/alertas")}
-              className="w-11 h-11 rounded-2xl mov-alert-button flex items-center justify-center relative"
+              className="w-11 h-11 rounded-2xl inventario-alert-button flex items-center justify-center relative"
               type="button"
             >
               <Bell size={16} />
@@ -384,218 +535,281 @@ function Movimientos() {
             </button>
           )}
 
-          {puedeRegistrarMovimiento && (
+          {puedeGestionar && (
             <button
-              onClick={abrirModal}
-              className="h-11 rounded-2xl mov-primary-button text-white font-semibold px-5 flex items-center justify-center gap-2 transition"
+              onClick={abrirNuevo}
+              className="h-11 rounded-2xl inventario-primary-button text-white font-semibold px-5 flex items-center justify-center gap-2 transition"
               type="button"
             >
               <Plus size={16} />
-              Nuevo Movimiento
+              Nuevo Producto
             </button>
           )}
         </div>
       </div>
 
-      <section className="mov-panel rounded-[28px] border p-6">
-        <div className="flex items-center gap-3 mb-6">
-          <TabButton active={filtro === "todos"} onClick={() => setFiltro("todos")} label="Todos" />
-          <TabButton active={filtro === "entradas"} onClick={() => setFiltro("entradas")} label="Entradas" />
-          <TabButton active={filtro === "salidas"} onClick={() => setFiltro("salidas")} label="Salidas" />
+      <section className="inventario-panel rounded-[28px] border p-6">
+        <div className="flex items-center justify-between mb-6">
+          <div className="flex items-center gap-3">
+            <TabButton active={filtro === "todos"} onClick={() => setFiltro("todos")} label={`Todos (${productos.length})`} />
+            <TabButton active={filtro === "normales"} onClick={() => setFiltro("normales")} label={`Normales (${productosNormales})`} />
+            <TabButton active={filtro === "criticos"} onClick={() => setFiltro("criticos")} label={`Críticos (${productosCriticos})`} />
+          </div>
+
+          <div className="flex items-center gap-3">
+            <button
+              onClick={exportarExcel}
+              className="inventario-secondary-button h-10 rounded-xl border px-4 text-sm font-semibold flex items-center gap-2 transition"
+              type="button"
+            >
+              <FileSpreadsheet size={16} />
+              Exportar Excel
+            </button>
+
+            <button
+              onClick={exportarPDF}
+              className="inventario-secondary-button h-10 rounded-xl border px-4 text-sm font-semibold flex items-center gap-2 transition"
+              type="button"
+            >
+              <FileText size={16} />
+              Exportar PDF
+            </button>
+          </div>
         </div>
 
-        <div className="space-y-3">
+        <div className="inventario-table rounded-[24px] border overflow-hidden">
+          <div className="grid grid-cols-[90px_1.7fr_1fr_1.1fr_1fr_1fr_1fr] px-6 py-4 text-[12px] font-bold uppercase border-b inventario-table-head">
+            <div>SKU</div>
+            <div>Producto</div>
+            <div>Categoría</div>
+            <div>Valor Unitario</div>
+            <div>Stock Actual</div>
+            <div>Estado</div>
+            <div>Acciones</div>
+          </div>
+
           {cargando ? (
-            <div className="px-6 py-12 text-center mov-muted">
-              Cargando movimientos...
+            <div className="px-6 py-12 text-center inventario-muted">
+              Cargando productos...
             </div>
-          ) : movimientos.length === 0 ? (
-            <div className="px-6 py-12 text-center mov-muted">
-              No hay movimientos para mostrar
+          ) : productosFiltrados.length === 0 ? (
+            <div className="px-6 py-12 text-center inventario-muted">
+              No hay productos para mostrar
             </div>
           ) : (
-            movimientos.map((movimiento, index) => {
-              const tipo = normalizarTipo(movimiento.tipo)
-              const esEntrada = tipo === "ENTRADA"
+            productosFiltrados.map((producto) => {
+              const stock = Number(producto.stock || 0)
+              const minimo = Number(producto.stockMinimo || 0)
+              const maximo = Number(producto.stockMaximo || 0)
+              const critico = minimo > 0 && stock <= minimo
+              const porcentaje = maximo > 0 ? Math.min((stock / maximo) * 100, 100) : 0
 
               return (
                 <div
-                  key={movimiento.id || index}
-                  className="mov-card rounded-[18px] border px-5 py-4 flex items-center justify-between"
+                  key={producto.id}
+                  className="grid grid-cols-[90px_1.7fr_1fr_1.1fr_1fr_1fr_1fr] items-center px-6 py-4 border-b last:border-b-0 inventario-row"
                 >
-                  <div className="flex items-center gap-4 min-w-0">
-                    <div className="w-11 h-11 rounded-xl mov-icon-box flex items-center justify-center">
-                      {esEntrada ? (
-                        <ArrowDownLeft size={18} className="text-[#20a464]" />
-                      ) : (
-                        <ArrowUpRight size={18} className="text-[#e58a57]" />
-                      )}
-                    </div>
+                  <div className="text-sm inventario-muted">
+                    {producto.sku}
+                  </div>
 
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className="w-10 h-10 rounded-xl inventario-icon-box flex items-center justify-center">
+                      <Package size={17} />
+                    </div>
                     <div className="min-w-0">
-                      <div className="font-semibold mov-title truncate">
-                        {movimiento.productoNombre || "Producto"}
+                      <div className="font-semibold inventario-title truncate">
+                        {producto.nombre}
                       </div>
-                      <div className="mov-muted text-sm truncate">
-                        {(movimiento.sku || "SINSKU") +
-                          " · Usuario: " +
-                          (movimiento.usuario || "sistema") +
-                          (movimiento.motivo ? " · Motivo: " + movimiento.motivo : "")}
+                      <div className="text-xs inventario-muted">
+                        {producto.sku}
                       </div>
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-5 shrink-0">
+                  <div className="text-sm inventario-title">
+                    {producto.categoria}
+                  </div>
+
+                  <div className="text-sm font-semibold inventario-title">
+                    {formatoMoneda(producto.precioUnitario)}
+                  </div>
+
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <div className="flex-1 h-2 rounded-full inventario-stock-bg overflow-hidden">
+                        <div
+                          className="h-full rounded-full inventario-stock-bar"
+                          style={{ width: `${porcentaje}%` }}
+                        ></div>
+                      </div>
+                      <span className="text-sm font-semibold inventario-title min-w-[30px]">
+                        {stock}
+                      </span>
+                    </div>
+                    <div className="text-[11px] inventario-muted mt-1">
+                      Mín: {minimo} · Máx: {maximo}
+                    </div>
+                  </div>
+
+                  <div>
                     <span
-                      className={`inline-flex items-center rounded-full px-3 py-1 text-[11px] font-semibold ${
-                        esEntrada
-                          ? "bg-[#eefbf3] text-[#20a464]"
-                          : "bg-[#fff1ea] text-[#e58a57]"
+                      className={`inline-flex items-center rounded-full px-3 py-1 text-[12px] font-semibold ${
+                        critico
+                          ? "bg-[#fff1ea] text-[#e58a57]"
+                          : "bg-[#eefbf3] text-[#20a464]"
                       }`}
                     >
-                      {tipo}
+                      {critico ? "Crítico" : "Normal"}
                     </span>
+                  </div>
 
-                    <span
-                      className={`font-semibold text-sm ${
-                        esEntrada ? "text-[#20a464]" : "text-[#e35d5d]"
-                      }`}
-                    >
-                      {esEntrada ? "+" : "-"}
-                      {movimiento.cantidad ?? 0}
-                    </span>
+                  <div className="flex items-center gap-2">
+                    {puedeGestionar ? (
+                      <>
+                        <button
+                          onClick={() => abrirEditar(producto)}
+                          className="w-9 h-9 rounded-xl bg-[#fff7ed] text-[#f59e0b] flex items-center justify-center hover:bg-[#ffedd5] transition"
+                          type="button"
+                        >
+                          <Pencil size={15} />
+                        </button>
 
-                    <span className="mov-muted text-sm min-w-[130px] text-right">
-                      {formatearFecha(movimiento.fecha)}
-                    </span>
+                        <button
+                          onClick={() => confirmarEliminar(producto)}
+                          className="w-9 h-9 rounded-xl bg-[#fff1f2] text-[#ef4444] flex items-center justify-center hover:bg-[#ffe4e6] transition"
+                          type="button"
+                        >
+                          <Trash2 size={15} />
+                        </button>
+                      </>
+                    ) : (
+                      <span className="text-xs inventario-muted">
+                        Solo lectura
+                      </span>
+                    )}
                   </div>
                 </div>
               )
             })
           )}
         </div>
-
-        {!cargando && movimientos.length > 0 && hayMas && (
-          <div className="flex justify-center mt-6">
-            <button
-              onClick={cargarMas}
-              disabled={cargandoMas}
-              className="h-9 px-5 rounded-full mov-load-button text-sm font-semibold transition disabled:opacity-60"
-              type="button"
-            >
-              {cargandoMas ? "Cargando..." : "Cargar más registros"}
-            </button>
-          </div>
-        )}
       </section>
 
       {modal && (
         <div className="fixed inset-0 z-50 bg-black/30 backdrop-blur-[2px] flex items-center justify-center p-4">
-          <div className="w-full max-w-[660px] rounded-[26px] mov-modal shadow-[0_20px_60px_rgba(39,33,79,0.18)] border overflow-hidden">
+          <div className="w-full max-w-[680px] rounded-[26px] inventario-modal shadow-[0_20px_60px_rgba(39,33,79,0.18)] border overflow-hidden">
             <div className="relative px-6 pt-5 pb-2">
               <button
                 onClick={cerrarModal}
-                className="absolute right-5 top-5 mov-muted hover:opacity-80 transition"
+                className="absolute right-5 top-5 inventario-muted hover:opacity-80 transition"
                 type="button"
               >
                 <X size={18} />
               </button>
 
               <div className="text-center">
-                <h2 className="text-[22px] font-bold mov-title leading-none">
-                  Nuevo Movimiento
+                <h2 className="text-[22px] font-bold inventario-title leading-none">
+                  {productoEditar ? "Editar Producto" : "Nuevo Producto"}
                 </h2>
-                <p className="mov-muted text-sm mt-2">
-                  {esOperador
-                    ? "Registra una salida de inventario"
-                    : "Registra una entrada o salida de inventario"}
+                <p className="inventario-muted text-sm mt-2">
+                  Registra la información del producto en inventario
                 </p>
               </div>
             </div>
 
             <div className="px-6 pb-5">
-              <div className="space-y-3">
-                <Field label="Producto">
-                  <select
-                    name="productoId"
-                    value={form.productoId}
-                    onChange={handleChange}
-                    className="modal-input"
-                  >
-                    <option value="">Selecciona un producto</option>
-                    {productos.map((producto) => (
-                      <option key={producto.id} value={producto.id}>
-                        {producto.nombre} - {producto.sku}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-
-                <div className="grid grid-cols-2 gap-4">
-                  <Field label="Tipo de Movimiento">
-                    <select
-                      name="tipo"
-                      value={esOperador ? "SALIDA" : form.tipo}
-                      onChange={handleChange}
-                      className="modal-input"
-                      disabled={esOperador}
-                    >
-                      {esOperador ? (
-                        <option value="SALIDA">Salida</option>
-                      ) : (
-                        <>
-                          <option value="ENTRADA">Entrada</option>
-                          <option value="SALIDA">Salida</option>
-                        </>
-                      )}
-                    </select>
-                  </Field>
-
-                  <Field label="Cantidad">
-                    <input
-                      name="cantidad"
-                      type="text"
-                      inputMode="numeric"
-                      value={form.cantidad}
-                      onChange={handleChange}
-                      className="modal-input"
-                      placeholder="0"
-                    />
-                  </Field>
-                </div>
-
-                <Field label="Motivo">
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="SKU">
                   <input
-                    name="motivo"
-                    value={form.motivo}
+                    name="sku"
+                    value={form.sku}
                     onChange={handleChange}
                     className="modal-input"
-                    placeholder="Ej: reposición, venta, ajuste"
+                    placeholder="Ej: SKU-001"
                   />
                 </Field>
 
-                {errorMovimiento && (
-                  <div className="rounded-2xl border border-[#fecaca] bg-[#fff1f2] px-4 py-3 text-sm text-[#be123c] leading-5">
-                    {errorMovimiento}
-                  </div>
-                )}
+                <Field label="Nombre del producto">
+                  <input
+                    name="nombre"
+                    value={form.nombre}
+                    onChange={handleChange}
+                    className="modal-input"
+                    placeholder="Ej: Laptop Lenovo"
+                  />
+                </Field>
+
+                <Field label="Categoría">
+                  <input
+                    name="categoria"
+                    value={form.categoria}
+                    onChange={handleChange}
+                    className="modal-input"
+                    placeholder="Ej: Electrónica"
+                  />
+                </Field>
+
+                <Field label="Valor unitario">
+                  <input
+                    name="precioUnitario"
+                    value={form.precioUnitario}
+                    onChange={handleChange}
+                    className="modal-input"
+                    placeholder="Ej: 210000"
+                    inputMode="numeric"
+                  />
+                </Field>
+
+                <Field label="Stock actual">
+                  <input
+                    name="stock"
+                    value={form.stock}
+                    onChange={handleChange}
+                    className="modal-input"
+                    placeholder="Ej: 20"
+                    inputMode="numeric"
+                  />
+                </Field>
+
+                <Field label="Stock mínimo">
+                  <input
+                    name="stockMinimo"
+                    value={form.stockMinimo}
+                    onChange={handleChange}
+                    className="modal-input"
+                    placeholder="Ej: 10"
+                    inputMode="numeric"
+                  />
+                </Field>
+
+                <Field label="Stock máximo">
+                  <input
+                    name="stockMaximo"
+                    value={form.stockMaximo}
+                    onChange={handleChange}
+                    className="modal-input"
+                    placeholder="Ej: 100"
+                    inputMode="numeric"
+                  />
+                </Field>
               </div>
 
-              <div className="border-t mov-border mt-5 pt-4 flex justify-center gap-3">
+              <div className="border-t inventario-border mt-5 pt-4 flex justify-center gap-3">
                 <button
                   onClick={cerrarModal}
-                  className="h-10 px-6 rounded-xl mov-cancel-button border font-medium transition"
+                  className="h-10 px-6 rounded-xl inventario-cancel-button border font-medium transition"
                   type="button"
                 >
                   Cancelar
                 </button>
 
                 <button
-                  onClick={registrarMovimiento}
-                  className="h-10 px-6 rounded-xl mov-primary-button text-white font-semibold transition"
+                  onClick={guardarProducto}
+                  className="h-10 px-6 rounded-xl inventario-primary-button text-white font-semibold transition"
                   type="button"
                 >
-                  Guardar Movimiento
+                  {productoEditar ? "Guardar Cambios" : "Crear Producto"}
                 </button>
               </div>
             </div>
@@ -603,148 +817,168 @@ function Movimientos() {
         </div>
       )}
 
-      {modalExito && (
-        <div className="fixed inset-0 z-[70] bg-black/30 backdrop-blur-[2px] flex items-center justify-center p-4">
-          <div className="w-full max-w-[360px] mov-modal rounded-[14px] shadow-[0_20px_60px_rgba(39,33,79,0.18)] px-8 py-8 text-center">
-            <div className="flex justify-center mb-3">
-              <div className="w-14 h-14 rounded-full flex items-center justify-center">
-                <Check size={46} className="text-green-600" strokeWidth={2.5} />
-              </div>
-            </div>
-
-            <h3 className="text-[28px] font-bold mov-title leading-none mb-4">
-              ¡Éxito!
+      {modalEliminar && (
+        <div className="fixed inset-0 z-50 bg-black/30 backdrop-blur-[2px] flex items-center justify-center p-4">
+          <div className="w-full max-w-[420px] rounded-[24px] inventario-modal shadow-xl border p-6">
+            <h3 className="text-xl font-bold inventario-title mb-2">
+              Eliminar producto
             </h3>
-
-            <p className="mov-muted text-[17px] mb-6">
-              Movimiento registrado exitosamente
+            <p className="text-sm inventario-muted mb-5">
+              ¿Seguro que deseas eliminar el producto{" "}
+              <b>{productoEliminar?.nombre}</b>?
             </p>
 
-            <button
-              onClick={() => setModalExito(false)}
-              className="h-10 px-8 rounded-md bg-green-700 text-white font-semibold hover:bg-green-800 transition"
-              type="button"
-            >
-              Cerrar
-            </button>
+            <div className="flex justify-end gap-3">
+              <button
+                onClick={() => {
+                  setModalEliminar(false)
+                  setProductoEliminar(null)
+                }}
+                className="h-10 px-5 rounded-xl inventario-cancel-button border"
+                type="button"
+              >
+                Cancelar
+              </button>
+
+              <button
+                onClick={eliminarProducto}
+                className="h-10 px-5 rounded-xl bg-[#ef4444] text-white font-semibold"
+                type="button"
+              >
+                Eliminar
+              </button>
+            </div>
           </div>
         </div>
       )}
 
       {mensaje && (
-        <div className="fixed right-6 bottom-6 z-[60] rounded-2xl mov-toast px-5 py-3 shadow-lg">
+        <div className="fixed right-6 bottom-6 z-[60] max-w-[420px] rounded-2xl inventario-toast px-5 py-3 shadow-lg text-sm">
           {mensaje}
         </div>
       )}
 
       <style>{`
-        .mov-page {
-          background: var(--mov-page);
-          color: var(--mov-text);
+        .inventario-page {
+          background: var(--inv-page);
+          color: var(--inv-text);
         }
 
-        .mov-title {
-          color: var(--mov-text);
+        .inventario-title {
+          color: var(--inv-text);
         }
 
-        .mov-muted,
-        .mov-muted-icon {
-          color: var(--mov-muted);
+        .inventario-muted,
+        .inventario-muted-icon {
+          color: var(--inv-muted);
         }
 
-        .mov-primary-icon {
-          color: var(--mov-primary);
+        .inventario-border {
+          border-color: var(--inv-border);
         }
 
-        .mov-border {
-          border-color: var(--mov-border);
+        .inventario-input {
+          background: var(--inv-input);
+          border-color: var(--inv-border);
+          color: var(--inv-text);
         }
 
-        .mov-input,
-        .modal-input {
-          background: var(--mov-input);
-          border-color: var(--mov-border);
-          color: var(--mov-text);
+        .inventario-input::placeholder {
+          color: var(--inv-muted);
         }
 
-        .mov-input::placeholder,
-        .modal-input::placeholder {
-          color: var(--mov-muted);
-        }
-
-        .mov-input:focus,
+        .inventario-input:focus,
         .modal-input:focus {
-          border-color: var(--mov-primary);
-          box-shadow: 0 0 0 3px color-mix(in srgb, var(--mov-primary) 18%, transparent);
+          border-color: var(--inv-primary);
+          box-shadow: 0 0 0 3px color-mix(in srgb, var(--inv-primary) 18%, transparent);
         }
 
-        .mov-alert-button {
+        .inventario-alert-button {
           background: #fff8e6;
           border: 1px solid #f2df9c;
           color: #d6a11a;
         }
 
-        .mov-primary-button {
-          background: var(--mov-primary);
+        .inventario-primary-button {
+          background: var(--inv-primary);
         }
 
-        .mov-primary-button:hover {
-          background: var(--mov-primary-hover);
+        .inventario-primary-button:hover {
+          background: var(--inv-primary-hover);
         }
 
-        .mov-panel {
-          background: var(--mov-panel);
-          border-color: var(--mov-border);
+        .inventario-secondary-button {
+          background: var(--inv-card);
+          border-color: var(--inv-border);
+          color: var(--inv-text);
         }
 
-        .mov-card,
-        .mov-modal {
-          background: var(--mov-card);
-          border-color: var(--mov-border);
-          color: var(--mov-text);
+        .inventario-secondary-button:hover {
+          background: var(--inv-input);
         }
 
-        .mov-icon-box {
-          background: var(--mov-selected);
+        .inventario-panel {
+          background: var(--inv-panel);
+          border-color: var(--inv-border);
         }
 
-        .mov-load-button {
-          background: var(--mov-selected);
-          color: var(--mov-primary);
+        .inventario-table,
+        .inventario-modal {
+          background: var(--inv-card);
+          border-color: var(--inv-border);
+          color: var(--inv-text);
         }
 
-        .mov-load-button:hover {
-          background: var(--mov-input);
+        .inventario-table-head {
+          color: var(--inv-muted);
+          border-color: var(--inv-border);
         }
 
-        .mov-cancel-button {
+        .inventario-row {
+          border-color: var(--inv-border);
+        }
+
+        .inventario-icon-box {
+          background: var(--inv-selected);
+          color: var(--inv-primary);
+        }
+
+        .inventario-stock-bg {
+          background: var(--inv-border);
+        }
+
+        .inventario-stock-bar {
+          background: var(--inv-primary);
+        }
+
+        .inventario-cancel-button {
           background: transparent;
-          border-color: var(--mov-border);
-          color: var(--mov-text);
+          border-color: var(--inv-border);
+          color: var(--inv-text);
         }
 
-        .mov-cancel-button:hover {
-          background: var(--mov-input);
+        .inventario-cancel-button:hover {
+          background: var(--inv-input);
         }
 
-        .mov-toast {
-          background: var(--mov-button-dark);
+        .inventario-toast {
+          background: var(--inv-button-dark);
           color: white;
         }
 
         .modal-input {
           width: 100%;
           height: 44px;
-          border: 1px solid var(--mov-border);
+          border: 1px solid var(--inv-border);
           border-radius: 12px;
           padding: 0 14px;
           outline: none;
+          color: var(--inv-text);
+          background: var(--inv-input);
         }
 
-        .modal-input:disabled {
-          background: var(--mov-selected);
-          color: var(--mov-muted);
-          cursor: not-allowed;
+        .modal-input::placeholder {
+          color: var(--inv-muted);
         }
       `}</style>
     </div>
@@ -761,7 +995,7 @@ function TabButton({ active, onClick, label }: TabButtonProps) {
   return (
     <button
       onClick={onClick}
-      className={`mov-tab-button px-4 h-10 rounded-2xl text-sm font-semibold transition ${
+      className={`inventario-tab-button px-4 h-10 rounded-2xl text-sm font-semibold transition ${
         active ? "active" : ""
       }`}
       type="button"
@@ -769,23 +1003,23 @@ function TabButton({ active, onClick, label }: TabButtonProps) {
       {label}
 
       <style>{`
-        .mov-tab-button {
-          color: var(--mov-muted);
+        .inventario-tab-button {
+          color: var(--inv-muted);
           background: transparent;
         }
 
-        .mov-tab-button.active {
-          background: var(--mov-primary);
+        .inventario-tab-button.active {
+          background: var(--inv-primary);
           color: white;
         }
 
-        .mov-tab-button:hover {
-          background: var(--mov-selected);
-          color: var(--mov-primary);
+        .inventario-tab-button:hover {
+          background: var(--inv-selected);
+          color: var(--inv-primary);
         }
 
-        .mov-tab-button.active:hover {
-          background: var(--mov-primary-hover);
+        .inventario-tab-button.active:hover {
+          background: var(--inv-primary-hover);
           color: white;
         }
       `}</style>
@@ -801,10 +1035,10 @@ type FieldProps = {
 function Field({ label, children }: FieldProps) {
   return (
     <div>
-      <label className="block text-sm mov-title mb-2">{label}</label>
+      <label className="block text-sm inventario-title mb-2">{label}</label>
       {children}
     </div>
   )
 }
 
-export default Movimientos
+export default Inventario
