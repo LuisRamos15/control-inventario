@@ -11,8 +11,8 @@ import {
   Palette,
   Check,
 } from "lucide-react"
-import { useMemo, useState } from "react"
-import { marcarUsuarioOffline } from "../api/chat"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { marcarUsuarioOffline, marcarUsuarioOnline } from "../api/chat"
 import { appThemes } from "../theme/appTheme"
 import type { AppThemeName } from "../theme/appTheme"
 import { useAppTheme } from "../theme/AppThemeContext"
@@ -23,6 +23,7 @@ function MainLayout() {
   const token = localStorage.getItem("token") || ""
   const { themeName, theme, setThemeName } = useAppTheme()
   const [selectorTemaAbierto, setSelectorTemaAbierto] = useState(false)
+  const presenciaRef = useRef<number | null>(null)
 
   const decodeJwt = (jwt: string) => {
     try {
@@ -72,8 +73,44 @@ function MainLayout() {
   const puedeVerReportes = esSuperAdmin || esAdmin || esSupervisor
   const puedeVerChat = esSuperAdmin || esAdmin || esSupervisor || esOperador
 
+  useEffect(() => {
+    const activarPresencia = async () => {
+      try {
+        await marcarUsuarioOnline()
+      } catch (error) {
+        console.log(error)
+      }
+    }
+
+    activarPresencia()
+
+    presenciaRef.current = window.setInterval(() => {
+      activarPresencia()
+    }, 5000)
+
+    const handleBeforeUnload = () => {
+      marcarUsuarioOffline()
+    }
+
+    window.addEventListener("beforeunload", handleBeforeUnload)
+
+    return () => {
+      if (presenciaRef.current) {
+        window.clearInterval(presenciaRef.current)
+        presenciaRef.current = null
+      }
+
+      window.removeEventListener("beforeunload", handleBeforeUnload)
+    }
+  }, [])
+
   const cerrarSesion = async () => {
     try {
+      if (presenciaRef.current) {
+        window.clearInterval(presenciaRef.current)
+        presenciaRef.current = null
+      }
+
       await marcarUsuarioOffline()
     } catch {
     } finally {
